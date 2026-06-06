@@ -1,5 +1,5 @@
 {
-  "python.defaultInterpreterPath": "${workspaceFolder}/venv/bin/python",
+  "python.defaultInterpreterPath": "${userHome}/.venvs/tsfm-sae-difficulty/bin/python",
   "python.terminal.activateEnvironment": true,
   "python.analysis.extraPaths": [
     "${workspaceFolder}",

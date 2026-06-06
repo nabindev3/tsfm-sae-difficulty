@@ -8,16 +8,19 @@ from safetensors.torch import load_file
 import scipy.signal
 import scipy.stats
 from statsmodels.tsa.stattools import acf, adfuller
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import TimeSeriesSplit
 import warnings
 
 warnings.filterwarnings("ignore")
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'sae')))
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(_REPO_ROOT, 'sae'))
+sys.path.append(_REPO_ROOT)
 from sae_model import TopKSAE
+# Shared, unit-tested probe ladder (ported from fm-difficulty-probe/core). The
+# ladder fit + paired bootstrap now live in core.probe so they can be tested on
+# synthetic numpy arrays with no model/network; see tests/test_core_synthetic.py.
+from core.probe import build_ladder, run_probe_ladder, P1, P2, P3, P4, P5
 
 def compute_spectral_entropy(ts):
     f, Pxx = scipy.signal.welch(ts)
@@ -132,148 +135,87 @@ def main():
     if len(np.unique(y_train)) < 2 or len(np.unique(y_test)) < 2:
         print("Warning: Only one class present in train or test split. AUROC cannot be computed properly.")
         
-    probes = {
-        "P1_InputStats":     input_stats,
-        "P2_InputStats_Raw": np.concatenate([input_stats, raw_agg], axis=1),
-        "P3_InputStats_SAE": np.concatenate([input_stats, sae_agg], axis=1),
-        # Diagnostic probes (not in headline table): isolate where signal lives.
-        # If P4 ~ chance, raw activations carry no difficulty signal at all.
-        # If P5 ~ chance, SAE features carry no difficulty signal at all.
-        # If P4/P5 are non-trivial but P2/P3 still lose to P1, the problem is
-        # input-stats DOMINATING the L1 logistic when concatenated.
-        "P4_RawOnly":        raw_agg,
-        "P5_SAEOnly":        sae_agg,
-    }
-    
-    results = {}
-    preds = {}
+    # Assemble the five rungs from the three building blocks. The diagnostic
+    # rungs P4/P5 isolate where signal lives: if P4 ~ chance, raw activations
+    # carry no difficulty signal; if P5 ~ chance, SAE features carry none; if
+    # P4/P5 are non-trivial but P2/P3 still lose to P1, input-stats are
+    # DOMINATING the L1 logistic when concatenated.
+    features = build_ladder(input_stats, raw_agg, sae_agg)
 
     # Inner CV uses TimeSeriesSplit so consecutive (overlapping) windows do not
     # leak across folds when picking C. The outer temporal/purge split already
     # protects the test set, but a shuffled inner CV would still bias the
-    # chosen regularization toward overfitting.
+    # chosen regularization toward overfitting. Pre-materialize the folds over
+    # the TRAIN rows and hand them to the shared (modality-agnostic) ladder.
     n_splits = max(2, min(5, int(np.bincount(y_train).min()) - 1, train_mask.sum() // 3))
-    # Extended downward: with 12k SAE features and 483 train samples the prior
-    # grid's lower bound (0.01) was still too lax -- CV had no choice but to
-    # pick C=3.0 (top of grid) and overfit. 1e-4 ... 1.0 covers the regime
-    # actually relevant to high-dim sparse-feature probes.
-    C_grid = {"C": [1e-4, 3e-4, 1e-3, 3e-3, 0.01, 0.03, 0.1, 0.3, 1.0]}
+    cv_splits = list(TimeSeriesSplit(n_splits=n_splits).split(np.zeros((train_mask.sum(), 1)), y_train))
 
-    for name, X in probes.items():
-        print(f"Training probe: {name} (features: {X.shape[1]})")
-        scaler = StandardScaler()
-        X_train_s = scaler.fit_transform(X[train_mask])
-        X_test_s = scaler.transform(X[test_mask])
+    print("Fitting probe ladder (shared core.probe.run_probe_ladder)...")
+    ladder, preds = run_probe_ladder(
+        features, y, train_mask, test_mask, cv_splits,
+        # 1e-4 ... 1.0 (core default) covers the high-dim sparse-feature regime;
+        # the prior 0.01 lower bound left CV pinned to the top of the grid.
+        n_boot=2000, seed=42,
+    )
 
-        if len(np.unique(y_train)) < 2:
-            preds[name] = np.zeros_like(y_test, dtype=float)
-            results[name] = {"AUROC": 0.0, "95%_CI_lower": 0.0, "95%_CI_upper": 0.0}
-            continue
-
-        base = LogisticRegression(penalty="l1", solver="liblinear",
-                                   class_weight="balanced", max_iter=2000)
-        gs = GridSearchCV(base, C_grid, scoring="roc_auc",
-                          cv=TimeSeriesSplit(n_splits=n_splits))
-        gs.fit(X_train_s, y_train)
-        preds[name] = gs.predict_proba(X_test_s)[:, 1]
-        # Point AUROC on the actual test set (not a bootstrap mean) for honesty.
-        point = (roc_auc_score(y_test, preds[name])
-                 if len(np.unique(y_test)) > 1 else 0.0)
-        results[name] = {"AUROC": point, "best_C": gs.best_params_["C"]}
-        print(f"  {name} point AUROC = {point:.3f}  (C={gs.best_params_['C']})")
-
-    # PAIRED bootstrap: resample test indices ONCE per iteration, reuse for all
-    # probes and all deltas. This is the only way to get a CI on the headline
-    # P3 - P2 delta, which neutralizes the dimensionality argument.
-    rng = np.random.default_rng(42)
-    names = list(probes.keys())
-    boot = {n: [] for n in names}
-    pairs = [("P2_InputStats_Raw", "P1_InputStats"),
-             ("P3_InputStats_SAE", "P1_InputStats"),
-             ("P3_InputStats_SAE", "P2_InputStats_Raw")]
-    boot_delta = {f"{a}-{b}": [] for a, b in pairs}
-    idx_all = np.arange(len(y_test))
-    if len(np.unique(y_test)) > 1:
-        for _ in range(2000):
-            idx = rng.choice(idx_all, size=len(idx_all), replace=True)
-            if len(np.unique(y_test[idx])) < 2:
-                continue
-            per = {n: roc_auc_score(y_test[idx], preds[n][idx]) for n in names}
-            for n in names:
-                boot[n].append(per[n])
-            for a, b in pairs:
-                boot_delta[f"{a}-{b}"].append(per[a] - per[b])
-
-    def _ci(arr):
-        if not arr:
-            return (np.nan, np.nan)
-        return float(np.percentile(arr, 2.5)), float(np.percentile(arr, 97.5))
-
-    for n in names:
-        lo, hi = _ci(boot[n])
-        results[n]["95%_CI_lower"] = lo
-        results[n]["95%_CI_upper"] = hi
-        print(f"  {n} AUROC 95% CI: [{lo:.3f}, {hi:.3f}]")
-
-    delta_raw = results["P2_InputStats_Raw"]["AUROC"] - results["P1_InputStats"]["AUROC"]
-    delta_sae = results["P3_InputStats_SAE"]["AUROC"] - results["P1_InputStats"]["AUROC"]
-    delta_sae_over_raw = results["P3_InputStats_SAE"]["AUROC"] - results["P2_InputStats_Raw"]["AUROC"]
-    d_raw_ci = _ci(boot_delta["P2_InputStats_Raw-P1_InputStats"])
-    d_sae_ci = _ci(boot_delta["P3_InputStats_SAE-P1_InputStats"])
-    d_sor_ci = _ci(boot_delta["P3_InputStats_SAE-P2_InputStats_Raw"])
+    for name, pr in ladder.probes.items():
+        print(f"  {name} point AUROC = {pr.auroc:.3f}  (C={pr.best_C})  "
+              f"95% CI [{pr.ci_low:.3f}, {pr.ci_high:.3f}]")
+    d_raw = ladder.deltas[f"{P2}-{P1}"]
+    d_sae = ladder.deltas[f"{P3}-{P1}"]
+    d_sor = ladder.deltas[f"{P3}-{P2}"]
     print("\n--- Incremental Predictive Power (ΔAUROC, paired bootstrap) ---")
-    print(f"Δ Raw - Stats : {delta_raw:+.3f}  95% CI [{d_raw_ci[0]:+.3f}, {d_raw_ci[1]:+.3f}]")
-    print(f"Δ SAE - Stats : {delta_sae:+.3f}  95% CI [{d_sae_ci[0]:+.3f}, {d_sae_ci[1]:+.3f}]")
-    print(f"Δ SAE - Raw   : {delta_sae_over_raw:+.3f}  95% CI [{d_sor_ci[0]:+.3f}, {d_sor_ci[1]:+.3f}]")
-        
+    print(f"Δ Raw - Stats : {d_raw['point']:+.3f}  95% CI [{d_raw['ci_low']:+.3f}, {d_raw['ci_high']:+.3f}]")
+    print(f"Δ SAE - Stats : {d_sae['point']:+.3f}  95% CI [{d_sae['ci_low']:+.3f}, {d_sae['ci_high']:+.3f}]")
+    print(f"Δ SAE - Raw   : {d_sor['point']:+.3f}  95% CI [{d_sor['ci_low']:+.3f}, {d_sor['ci_high']:+.3f}]")
+
+    # Canonical core rung names -> the legacy column/JSON labels the rest of the
+    # pipeline (eval/selective_prediction.py, cascade.py, calibration.py,
+    # populate_report.py) reads by name. Keep this map in sync with those.
+    LEGACY = {P1: "P1_InputStats", P2: "P2_InputStats_Raw",
+              P3: "P3_InputStats_SAE", P4: "P4_RawOnly", P5: "P5_SAEOnly"}
+
     df_test = df_meta[test_mask].copy()
-    if preds:
-        for name, p in preds.items():
-            df_test[f"pred_{name}"] = p
+    for name, p in preds.items():
+        df_test[f"pred_{LEGACY[name]}"] = p
     df_test.to_parquet("activations/probe_scores.parquet")
     print("\nSaved probe_scores.parquet")
 
     # Save probe results JSON
     import json
     os.makedirs("probing/results", exist_ok=True)
-    
-    # Calculate n_train, n_test, hard_fraction
-    n_train = int(train_mask.sum())
-    n_test = int(test_mask.sum())
-    hard_fraction = float(y[test_mask].mean()) if n_test > 0 else 0.0
-    n_total = len(df_meta)
-    
+
     final_results = {
-        "n_total": n_total,
-        "n_train": n_train,
-        "n_test": n_test,
-        "hard_fraction": hard_fraction,
-        "P1_AUROC": results.get("P1_InputStats", {}).get("AUROC", 0.0),
-        "P1_CI_lower": results.get("P1_InputStats", {}).get("95%_CI_lower", 0.0),
-        "P1_CI_upper": results.get("P1_InputStats", {}).get("95%_CI_upper", 0.0),
-        "P2_AUROC": results.get("P2_InputStats_Raw", {}).get("AUROC", 0.0),
-        "P2_CI_lower": results.get("P2_InputStats_Raw", {}).get("95%_CI_lower", 0.0),
-        "P2_CI_upper": results.get("P2_InputStats_Raw", {}).get("95%_CI_upper", 0.0),
-        "P3_AUROC": results.get("P3_InputStats_SAE", {}).get("AUROC", 0.0),
-        "P3_CI_lower": results.get("P3_InputStats_SAE", {}).get("95%_CI_lower", 0.0),
-        "P3_CI_upper": results.get("P3_InputStats_SAE", {}).get("95%_CI_upper", 0.0),
-        "delta_raw": float(delta_raw),
-        "delta_raw_CI_lower": d_raw_ci[0],
-        "delta_raw_CI_upper": d_raw_ci[1],
-        "delta_sae": float(delta_sae),
-        "delta_sae_CI_lower": d_sae_ci[0],
-        "delta_sae_CI_upper": d_sae_ci[1],
-        "delta_sae_over_raw": float(delta_sae_over_raw),
-        "delta_sae_over_raw_CI_lower": d_sor_ci[0],
-        "delta_sae_over_raw_CI_upper": d_sor_ci[1],
+        "n_total": ladder.n_total,
+        "n_train": ladder.n_train,
+        "n_test": ladder.n_test,
+        "hard_fraction": ladder.hard_fraction,
+        "P1_AUROC": ladder.probes[P1].auroc,
+        "P1_CI_lower": ladder.probes[P1].ci_low,
+        "P1_CI_upper": ladder.probes[P1].ci_high,
+        "P2_AUROC": ladder.probes[P2].auroc,
+        "P2_CI_lower": ladder.probes[P2].ci_low,
+        "P2_CI_upper": ladder.probes[P2].ci_high,
+        "P3_AUROC": ladder.probes[P3].auroc,
+        "P3_CI_lower": ladder.probes[P3].ci_low,
+        "P3_CI_upper": ladder.probes[P3].ci_high,
+        "delta_raw": d_raw["point"],
+        "delta_raw_CI_lower": d_raw["ci_low"],
+        "delta_raw_CI_upper": d_raw["ci_high"],
+        "delta_sae": d_sae["point"],
+        "delta_sae_CI_lower": d_sae["ci_low"],
+        "delta_sae_CI_upper": d_sae["ci_high"],
+        "delta_sae_over_raw": d_sor["point"],
+        "delta_sae_over_raw_CI_lower": d_sor["ci_low"],
+        "delta_sae_over_raw_CI_upper": d_sor["ci_high"],
         # Diagnostic probes (not in headline table)
-        "P4_RawOnly_AUROC": results.get("P4_RawOnly", {}).get("AUROC", 0.0),
-        "P4_RawOnly_CI_lower": results.get("P4_RawOnly", {}).get("95%_CI_lower", 0.0),
-        "P4_RawOnly_CI_upper": results.get("P4_RawOnly", {}).get("95%_CI_upper", 0.0),
-        "P5_SAEOnly_AUROC": results.get("P5_SAEOnly", {}).get("AUROC", 0.0),
-        "P5_SAEOnly_CI_lower": results.get("P5_SAEOnly", {}).get("95%_CI_lower", 0.0),
-        "P5_SAEOnly_CI_upper": results.get("P5_SAEOnly", {}).get("95%_CI_upper", 0.0),
-        "chosen_C": {k: v.get("best_C") for k, v in results.items() if "best_C" in v},
+        "P4_RawOnly_AUROC": ladder.probes[P4].auroc,
+        "P4_RawOnly_CI_lower": ladder.probes[P4].ci_low,
+        "P4_RawOnly_CI_upper": ladder.probes[P4].ci_high,
+        "P5_SAEOnly_AUROC": ladder.probes[P5].auroc,
+        "P5_SAEOnly_CI_lower": ladder.probes[P5].ci_low,
+        "P5_SAEOnly_CI_upper": ladder.probes[P5].ci_high,
+        "chosen_C": {LEGACY[name]: pr.best_C for name, pr in ladder.probes.items()},
     }
     with open("probing/results/probe_results.json", "w") as f:
         json.dump(final_results, f, indent=4)

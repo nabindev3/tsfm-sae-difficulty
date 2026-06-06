@@ -2,7 +2,9 @@
 # One-command pipeline. Stops at the first failure. The probe REFUSES to run on
 # unlabelled data, so this also enforces the correct order.
 set -euo pipefail
-PY=${PY:-./venv/bin/python}
+# Interpreter lives OUTSIDE the project tree (see README "Running"). Override
+# with e.g. PY=./venv/bin/python if you keep one locally.
+PY=${PY:-$HOME/.venvs/tsfm-sae-difficulty/bin/python}
 
 echo "== [1/5] smoke test =="
 $PY smoke_test.py

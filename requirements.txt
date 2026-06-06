@@ -10,3 +10,4 @@ matplotlib
 pyarrow
 tqdm
 statsmodels  # ADF p-value + autocorrelation; probing/probe.py imports it at module load
+pytest       # dev: runs the offline suite under tests/ (`pytest tests/ -q`)

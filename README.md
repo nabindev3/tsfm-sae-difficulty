@@ -69,11 +69,16 @@ reproduce.sh                                 # one-command pipeline (steps 1/7 .
 smoke_test.py                                # one-window forecast sanity check
 tests/test_probe_smoke.py                    # offline unit smoke test: TopKSAE +
                                              # spectral-entropy feature (no model/network)
+tests/test_core_synthetic.py                 # offline ladder test: core.run_probe_ladder
+                                             # on synthetic arrays (pytest tests/ -q)
 
 extract_activations.py                       # encoder hook, CRPS@100, seasonal MASE,
                                              # temporal split + purge, --layer_idx,
                                              # --skip_predict (activation-only mode)
 
+core/probe.py                                # shared, unit-tested probe ladder (build_ladder +
+                                             # run_probe_ladder); ported from fm-difficulty-probe
+core/stats.py                                # paired-bootstrap AUROC/CI + result containers
 sae/sae_model.py                             # TopK SAE + aux-k dead-feature revival
 sae/train_sae.py                             # trains the SAE on TRAIN-split tokens only,
                                              # auto-detects d_model from activations,
@@ -118,7 +123,11 @@ _stale/                                      # quarantined prototype artifacts -
 ## Running
 
 ```bash
-python3 -m venv venv && source venv/bin/activate
+# Keep the venv OUTSIDE the project tree (an in-tree venv gets accidentally
+# searched/activated and bloats backups). reproduce.sh defaults to this path;
+# override with PY=/path/to/python if you put it elsewhere.
+python3 -m venv ~/.venvs/tsfm-sae-difficulty
+source ~/.venvs/tsfm-sae-difficulty/bin/activate
 pip install -r requirements.txt
 bash reproduce.sh                 # full pipeline (steps 1/7 .. 7/7)
 ```
