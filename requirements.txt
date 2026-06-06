@@ -11,3 +11,7 @@ pyarrow
 tqdm
 statsmodels  # ADF p-value + autocorrelation; probing/probe.py imports it at module load
 pytest       # dev: runs the offline suite under tests/ (`pytest tests/ -q`)
+# Shared core (probe ladder / TopK SAE / cascade / calibration) is the sibling
+# fm-difficulty-probe package. Install it editable AFTER the above, with --no-deps
+# (this file already covers the runtime stack):
+#     pip install -e ../fm-difficulty-probe --no-deps

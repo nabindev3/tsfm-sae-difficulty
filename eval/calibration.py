@@ -20,6 +20,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+# ECE / Brier / reliability binning is the shared, unit-tested implementation in
+# fm-difficulty-probe's core (install editable:
+# `pip install -e ../fm-difficulty-probe --no-deps`).
+from core.calibration import compute_ece_brier, reliability_points
+
 
 PROBE_LABELS = {
     "pred_P1_InputStats":     ("P1 stats",       "#4c78a8"),
@@ -31,27 +36,15 @@ PROBE_LABELS = {
 
 
 def compute_calibration(y_true: np.ndarray, y_pred: np.ndarray, n_bins: int = 10):
-    """Returns per-bin (mean_pred, mean_actual, count) plus ECE and Brier."""
-    bins = np.linspace(0.0, 1.0, n_bins + 1)
-    bin_idx = np.clip(np.digitize(y_pred, bins) - 1, 0, n_bins - 1)
-    bin_pred, bin_actual, bin_count = [], [], []
-    ece_terms = []
-    n = len(y_true)
-    for b in range(n_bins):
-        mask = bin_idx == b
-        cnt = int(mask.sum())
-        if cnt == 0:
-            bin_pred.append(np.nan); bin_actual.append(np.nan); bin_count.append(0)
-            continue
-        p_pred = float(y_pred[mask].mean())
-        p_act  = float(y_true[mask].mean())
-        bin_pred.append(p_pred); bin_actual.append(p_act); bin_count.append(cnt)
-        ece_terms.append((cnt / n) * abs(p_pred - p_act))
-    ece = float(sum(ece_terms))
-    brier = float(np.mean((y_pred - y_true) ** 2))
-    return {"bin_centers": [(bins[b] + bins[b + 1]) / 2 for b in range(n_bins)],
-            "bin_pred_mean": bin_pred, "bin_actual_freq": bin_actual,
-            "bin_count": bin_count, "ece": ece, "brier": brier}
+    """ECE + Brier + reliability points, all via the shared core.calibration.
+
+    `reliability_pred` / `reliability_actual` are the (mean predicted, mean
+    actual) coordinates of each OCCUPIED bin — feed straight to the diagram.
+    """
+    ece, brier = compute_ece_brier(y_true, y_pred, n_bins=n_bins)
+    xs, ys = reliability_points(y_true, y_pred, n_bins=n_bins)
+    return {"reliability_pred": xs, "reliability_actual": ys,
+            "ece": ece, "brier": brier}
 
 
 def main():
@@ -96,7 +89,7 @@ def main():
         cal = compute_calibration(y, df[col].values, n_bins=args.n_bins)
         summary["probes"][col] = cal
         lbl, c = PROBE_LABELS.get(col, (col, "purple"))
-        ax.plot(cal["bin_pred_mean"], cal["bin_actual_freq"],
+        ax.plot(cal["reliability_pred"], cal["reliability_actual"],
                 color=c, marker="o", markersize=5,
                 label=f"{lbl}  (ECE {cal['ece']:.3f}, Brier {cal['brier']:.3f})")
         print(f"{lbl:<24}  {cal['ece']:>7.4f}  {cal['brier']:>7.4f}")

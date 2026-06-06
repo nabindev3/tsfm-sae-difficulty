@@ -5,11 +5,12 @@ import numpy as np
 import pandas as pd
 import torch
 from safetensors.torch import load_file
-import scipy.signal
-import scipy.stats
-from statsmodels.tsa.stattools import acf, adfuller
 from sklearn.model_selection import TimeSeriesSplit
 import warnings
+# NOTE: scipy and statsmodels are imported lazily inside the two functions that
+# use them (compute_spectral_entropy / compute_input_stats), so importing this
+# module for a single helper does not pay the statsmodels import cost. This
+# mirrors the unified modalities/tsfm.py adapter in fm-difficulty-probe.
 
 warnings.filterwarnings("ignore")
 
@@ -17,12 +18,15 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(_REPO_ROOT, 'sae'))
 sys.path.append(_REPO_ROOT)
 from sae_model import TopKSAE
-# Shared, unit-tested probe ladder (ported from fm-difficulty-probe/core). The
-# ladder fit + paired bootstrap now live in core.probe so they can be tested on
-# synthetic numpy arrays with no model/network; see tests/test_core_synthetic.py.
+# Shared, unit-tested probe ladder from the fm-difficulty-probe `core` package
+# (installed editable: `pip install -e ../fm-difficulty-probe --no-deps`). The
+# ladder fit + paired bootstrap live there so they are tested on synthetic numpy
+# arrays with no model/network; see tests/test_core_synthetic.py.
 from core.probe import build_ladder, run_probe_ladder, P1, P2, P3, P4, P5
 
 def compute_spectral_entropy(ts):
+    import scipy.signal
+    import scipy.stats
     f, Pxx = scipy.signal.welch(ts)
     if np.sum(Pxx) == 0:
         return 0.0
@@ -34,6 +38,7 @@ def compute_input_stats(df_meta, context_length=512, season_length=24):
     version computed four. The missing ones (volatility, seasonal autocorr,
     trend slope, range) are precisely the ones a regime-shift detector would
     target, so they need to be in the baseline for an honest comparison."""
+    from statsmodels.tsa.stattools import acf, adfuller
     url = "https://raw.githubusercontent.com/zhouhaoyi/ETDataset/main/ETT-small/ETTh1.csv"
     df_raw = pd.read_csv(url)
     ts_data = df_raw["OT"].values.astype(np.float64)

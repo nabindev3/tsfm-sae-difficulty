@@ -37,27 +37,27 @@ flowchart TB
     D --> E
     E --> F["sae/checkpoints/<br/>sae_topk_32.pt<br/>d_model=512, d_hidden=4096"]
 
-    C --> G["probing/probe.py<br/>5 probes &middot; L1 logistic<br/>TimeSeriesSplit CV &middot; paired bootstrap (2000)"]
+    C --> G["probing/probe.py<br/>5 probes · L1 logistic<br/>TimeSeriesSplit CV · paired bootstrap (2000)"]
     D --> G
     F --> G
-    G --> H["probing/results/<br/>probe_results.json &middot; probe_scores.parquet"]
+    G --> H["probing/results/<br/>probe_results.json · probe_scores.parquet"]
 
     H --> I["eval/selective_prediction.py<br/>risk-coverage + AURC<br/>oracle + random baselines"]
-    H --> J["eval/causal_ablation.py<br/>top-5 features &middot; ablate hook<br/>167 test windows &times; 6 predicts"]
+    H --> J["eval/causal_ablation.py<br/>top-5 features · ablate hook<br/>167 test windows × 6 predicts"]
     H --> K["eval/calibration.py<br/>ECE + Brier + reliability"]
     H --> L["eval/recalibrate.py<br/>Platt + isotonic on 5-fold OOF"]
 
-    A --> M["eval/extract_base_crps_test_only.py<br/>chronos-t5-base &middot; test windows only<br/>--skip_predict-style for speed"]
+    A --> M["eval/extract_base_crps_test_only.py<br/>chronos-t5-base · test windows only<br/>--skip_predict-style for speed"]
     M --> N["activations_base/<br/>ETTh1_metadata.parquet (test-only)"]
-    H --> O["eval/cascade.py<br/>small &harr; base routing<br/>random + oracle baselines"]
+    H --> O["eval/cascade.py<br/>small ↔ base routing<br/>random + oracle baselines"]
     N --> O
 
     I --> R1["risk_coverage.png<br/>AURC 1.22 vs 0.85 oracle"]
-    J --> R2["causal_ablation.json<br/>hard-cohort +0.043 (CI [-0.008, +0.095])"]
+    J --> R2["causal_ablation.json<br/>hard-cohort +0.043 (CI -0.008 to +0.095)"]
     K --> R3["reliability_diagram.png<br/>raw ECE 0.48"]
     L --> R4["reliability_recalibrated.png<br/>Platt ECE 0.097, AUROC preserved"]
     O --> R5["pareto_frontier.png<br/>5 P1-dominating points"]
-    G --> R6["auroc.png &middot; ΔAUROC table"]
+    G --> R6["auroc.png · ΔAUROC table"]
 ```
 
 ## Repo layout
@@ -76,10 +76,10 @@ extract_activations.py                       # encoder hook, CRPS@100, seasonal 
                                              # temporal split + purge, --layer_idx,
                                              # --skip_predict (activation-only mode)
 
-core/probe.py                                # shared, unit-tested probe ladder (build_ladder +
-                                             # run_probe_ladder); ported from fm-difficulty-probe
-core/stats.py                                # paired-bootstrap AUROC/CI + result containers
-sae/sae_model.py                             # TopK SAE + aux-k dead-feature revival
+# Shared, unit-tested implementations live in the fm-difficulty-probe `core`
+# package (probe ladder, TopK SAE, cascade, calibration). This repo depends on it
+# (pip install -e ../fm-difficulty-probe) instead of carrying duplicate copies.
+sae/sae_model.py                             # thin re-export of core.sae.TopKSAE (back-compat shim)
 sae/train_sae.py                             # trains the SAE on TRAIN-split tokens only,
                                              # auto-detects d_model from activations,
                                              # --output_dir, --resample_every (off by default)
@@ -129,6 +129,13 @@ _stale/                                      # quarantined prototype artifacts -
 python3 -m venv ~/.venvs/tsfm-sae-difficulty
 source ~/.venvs/tsfm-sae-difficulty/bin/activate
 pip install -r requirements.txt
+
+# Shared probe/SAE/cascade/calibration code lives in the sibling
+# fm-difficulty-probe repo's `core` package (the consolidation point). Install it
+# editable so `import core` resolves; --no-deps because requirements.txt above
+# already covers the runtime stack.
+pip install -e ../fm-difficulty-probe --no-deps
+
 bash reproduce.sh                 # full pipeline (steps 1/7 .. 7/7)
 ```
 
@@ -258,7 +265,7 @@ We translate the time-series forecasting difficulty routing protocol to the lang
 
 ```mermaid
 flowchart TB
-    subgraph Modality 1: HellaSwag [Multiple-Choice Binary Correctness]
+    subgraph M1 ["Modality 1: HellaSwag (Multiple-Choice Binary Correctness)"]
         A1["HellaSwag Validation"] --> B1["extract_activations.py<br/>pythia-410m<br/>--layer_idx 11, 17<br/>--max_samples 5000"]
         B1 --> C1["activations/ (Mid)<br/>activations_late/ (Late)<br/>hellaswag_activations.safetensors<br/>hellaswag_metadata.parquet"]
         C1 --> D1["sae/train_sae.py<br/>TopK SAE (k=32)<br/>Train split only"]
@@ -268,7 +275,7 @@ flowchart TB
         F1 --> G1["HellaSwag Probing Results<br/>(Rigorous Predictive Null)<br/>Δ(SAE - Raw) = +0.032"]
     end
 
-    subgraph Modality 2: SQuAD [Generative Continuous Perplexity]
+    subgraph M2 ["Modality 2: SQuAD (Generative Continuous Perplexity)"]
         A2["SQuAD Validation"] --> B2["extract_activations.py<br/>pythia-410m<br/>--layer_idx 11<br/>--max_samples 5000"]
         B2 --> C2["activations/<br/>squad_activations.safetensors<br/>squad_metadata.parquet"]
         C2 --> D2["sae/train_sae.py<br/>TopK SAE (k=32)<br/>Train split only"]
@@ -281,7 +288,7 @@ flowchart TB
     G1 --> H["Downstream Evaluation & Cascade Routing Engine"]
     G2 --> H
 
-    subgraph Downstream Evaluation [Calibration, Routing & Causal Ablation]
+    subgraph DS ["Downstream Evaluation (Calibration, Routing & Causal Ablation)"]
         H --> I["eval/cascade.py<br/>Real Pythia-2.8B base extraction<br/>Acc-Cost Pareto frontiers"]
         H --> J["eval/selective_prediction.py<br/>Risk-coverage curves & AURC"]
         H --> K["eval/recalibrate.py<br/>5-fold OOF Platt recalibration"]

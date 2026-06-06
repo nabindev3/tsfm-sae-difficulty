@@ -25,75 +25,17 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-
-def _route_threshold(scores, tau, crps_cheap, crps_base, cost_cheap, cost_base):
-    to_base = scores >= tau
-    final = np.where(to_base, crps_base, crps_cheap)
-    cost = np.where(to_base, cost_base, cost_cheap)
-    return float(final.mean()), float(cost.mean()), float(to_base.mean())
-
-
-def _route_random(crps_cheap, crps_base, cost_cheap, cost_base, n_trials=500, seed=42):
-    rng = np.random.default_rng(seed)
-    n = len(crps_cheap)
-    fractions = np.linspace(0.0, 1.0, 21)
-    curve = []
-    for f in fractions:
-        k = int(round(f * n))
-        crpses, costs = [], []
-        for _ in range(n_trials):
-            idx = rng.choice(n, size=k, replace=False) if k > 0 else np.array([], dtype=int)
-            mask = np.zeros(n, dtype=bool)
-            mask[idx] = True
-            crpses.append(np.where(mask, crps_base, crps_cheap).mean())
-            costs.append(np.where(mask, cost_base, cost_cheap).mean())
-        curve.append((float(np.mean(costs)), float(np.mean(crpses)), float(f)))
-    return curve
+# Routing math (threshold sweep, random/oracle baselines, Pareto-dominance) is
+# the shared, unit-tested implementation in fm-difficulty-probe's core. Here we
+# only adapt I/O: TSFM error == CRPS, "expensive" == the chronos-t5-base tier.
+# (Install editable: `pip install -e ../fm-difficulty-probe --no-deps`.)
+from core.cascade import cascade as core_cascade
 
 
-def _route_oracle(crps_cheap, crps_base, cost_cheap, cost_base):
-    # For each fraction f, route the top-(f*n) windows where base helps most.
-    gap = crps_cheap - crps_base          # >0 means base is better here
-    order = np.argsort(-gap)              # descending
-    n = len(gap)
-    fractions = np.linspace(0.0, 1.0, 21)
-    curve = []
-    for f in fractions:
-        k = int(round(f * n))
-        mask = np.zeros(n, dtype=bool)
-        mask[order[:k]] = True
-        crps = np.where(mask, crps_base, crps_cheap).mean()
-        cost = np.where(mask, cost_base, cost_cheap).mean()
-        curve.append((float(cost), float(crps), float(f)))
-    return curve
-
-
-def _probe_curve(scores, crps_cheap, crps_base, cost_cheap, cost_base, n_taus=41):
-    taus = np.linspace(0.0, 1.0, n_taus)
-    pts = []
-    for tau in taus:
-        crps, cost, frac = _route_threshold(scores, tau, crps_cheap, crps_base,
-                                            cost_cheap, cost_base)
-        pts.append({"tau": float(tau), "frac_to_base": frac,
-                    "mean_cost": cost, "mean_crps": crps})
-    return pts
-
-
-def _dominating_points(pts, cheap_anchor, base_anchor):
-    """Count probe-driven Pareto points strictly below the cheap↔base
-    interpolation line at their cost. Real evidence the probe adds value."""
-    c0, y0 = cheap_anchor
-    c1, y1 = base_anchor
-    dom = []
-    for p in pts:
-        c = p["mean_cost"]
-        if not (c0 < c < c1):
-            continue
-        t = (c - c0) / (c1 - c0 + 1e-12)
-        y_line = y0 + t * (y1 - y0)
-        if p["mean_crps"] < y_line - 1e-9:
-            dom.append(p)
-    return dom
+def _frontier_to_crps(pts):
+    """Rename core's modality-agnostic point keys to this repo's CRPS schema."""
+    return [{"tau": p["tau"], "frac_to_base": p["frac_to_exp"],
+             "mean_cost": p["mean_cost"], "mean_crps": p["mean_error"]} for p in pts]
 
 
 def main():
@@ -147,33 +89,39 @@ def main():
     cheap_anchor = (args.cost_cheap, float(crps_small.mean()))
     base_anchor = (args.cost_base,  float(crps_base.mean()))
 
-    # Baselines
-    random_curve = _route_random(crps_small, crps_base, args.cost_cheap,
-                                 args.cost_base, n_trials=args.n_random_trials)
-    oracle_curve = _route_oracle(crps_small, crps_base, args.cost_cheap, args.cost_base)
+    # Shared routing analysis: threshold sweep + random/oracle baselines +
+    # Pareto-dominance, all from core. err == CRPS, "exp" == base tier.
+    score_dict = {col: df[col].values.astype(float) for col in available}
+    result = core_cascade(score_dict, crps_small, crps_base,
+                          cost_cheap=args.cost_cheap, cost_exp=args.cost_base,
+                          n_random_trials=args.n_random_trials, seed=42)
 
-    # Probe-driven curves
+    # core's baseline curves are already (cost, error, frac) tuples == (cost, crps, frac).
+    random_curve = result["random_curve"]
+    oracle_curve = result["oracle_curve"]
+
     probe_pts = {}
-    summary = {"n_windows": n,
+    summary = {"n_windows": result["n_windows"],
                "always_cheap": {"mean_crps": cheap_anchor[1], "cost": cheap_anchor[0]},
                "always_base":  {"mean_crps": base_anchor[1],  "cost": base_anchor[0]},
-               "win_rate_base": float((crps_base < crps_small).mean()),
+               "win_rate_base": result["win_rate_expensive"],
                "random_curve": random_curve,
                "oracle_curve": oracle_curve,
                "probes": {}}
     for col in available:
-        pts = _probe_curve(df[col].values, crps_small, crps_base,
-                            args.cost_cheap, args.cost_base)
-        dom = _dominating_points(pts, cheap_anchor, base_anchor)
-        best_dom = min(dom, key=lambda p: p["mean_crps"]) if dom else None
+        pr = result["probes"][col]
+        pts = _frontier_to_crps(pr["frontier"])
+        n_dom = pr["n_dominating_points"]
+        best_dom = (_frontier_to_crps([pr["best_dominating"]])[0]
+                    if pr["best_dominating"] else None)
         probe_pts[col] = pts
         summary["probes"][col] = {
             "frontier": pts,
-            "n_dominating_points": len(dom),
+            "n_dominating_points": n_dom,
             "best_dominating": best_dom,
         }
-        print(f"  {col}: {len(dom)} Pareto-dominating points  "
-              f"(best: {best_dom})" if dom else f"  {col}: 0 dominating points")
+        print(f"  {col}: {n_dom} Pareto-dominating points  "
+              f"(best: {best_dom})" if n_dom else f"  {col}: 0 dominating points")
 
     # Save JSON
     with open(os.path.join(args.output_dir, "cascade_results.json"), "w") as f:
