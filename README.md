@@ -67,6 +67,8 @@ README.md                                    # this file
 requirements.txt                             # pinned deps + statsmodels
 reproduce.sh                                 # one-command pipeline (steps 1/7 .. 7/7)
 smoke_test.py                                # one-window forecast sanity check
+tests/test_probe_smoke.py                    # offline unit smoke test: TopKSAE +
+                                             # spectral-entropy feature (no model/network)
 
 extract_activations.py                       # encoder hook, CRPS@100, seasonal MASE,
                                              # temporal split + purge, --layer_idx,
