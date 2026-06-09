@@ -1,5 +1,11 @@
 # Sparse-Autoencoder Features from a Time-Series Foundation Model Predict Forecast Difficulty
 
+**Source of truth.** This is the canonical technical report for the TSFM project:
+methodology, per-section results, and numbers live here. The top-level
+[`README.md`](../README.md) is the repo entry point and links here rather than
+restating; [`workshop_paper.md`](workshop_paper.md) is the condensed paper and
+cross-references this document's section numbers.
+
 **Working draft.** Numerical claims marked `[FILL: …]` are populated automatically once `probing/results/probe_results.json` exists from a full-series run. All prose is editable.
 
 ## Abstract

@@ -5,6 +5,10 @@ learned signal for forecast difficulty, routing, and abstention — plus a
 Platt-recalibrated selective forecaster, a real small↔base cascade, and a
 Mishra-style causal ablation of the top features.
 
+> 📄 **Full technical report (source of truth for methodology & numbers):**
+> [`eval/report.md`](eval/report.md). This README is the entry point/overview;
+> [`eval/workshop_paper.md`](eval/workshop_paper.md) is the condensed paper.
+
 ## Question
 
 Do SAE features add predictive power for forecast difficulty **on top of** cheap
@@ -105,6 +109,9 @@ _stale/                                      # quarantined prototype artifacts -
 ```
 
 ## Methodology constraints (load-bearing)
+
+*Quick reference; the authoritative method + rationale is [`eval/report.md`](eval/report.md) §3.*
+
 
 1. **Temporal train/test split with a purge gap** ≥ `context + horizon` between
    train and test. Sliding windows overlap; a random split inflates AUROC.
@@ -222,6 +229,12 @@ causal ablation, TimeSAE did post-hoc explanation, neither did this.
 ---
 
 # LLM Bridge Project: Do SAE Features Predict LLM Correctness Beyond Activations?
+
+> **Cross-modal summary only.** The LLM-Bridge code, full results, and report
+> live in the sibling repo [`../llm-sae-difficulty`](../llm-sae-difficulty) —
+> that is this section's source of truth. The summary below is kept here for the
+> cross-modal comparison with the TSFM results above; for anything authoritative
+> (numbers, methods, how to run), go to that repo.
 
 We translate the time-series forecasting difficulty routing protocol to the language modeling modality. We ask the same question: **does an LLM's internal sparse-autoencoder (SAE) feature space tell us something about its own answer-correctness (difficulty) that raw activations and cheap prompt-level input statistics do not already reveal?**
 
@@ -361,26 +374,10 @@ By analyzing the top-activating prompts for the top difficulty-predictive SAE fe
 
 ## 7. Execution
 
-The LLM Bridge code is located in the sibling directory `../llm-sae-difficulty/`.
-
-```bash
-# Navigate to the LLM bridge project
-cd ../llm-sae-difficulty
-
-# Set up virtual environment and install dependencies
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-
-# Run HellaSwag scaled dual-layer pipeline (Layer 12 & 18)
-bash reproduce.sh
-
-# Run SQuAD continuous perplexity cascade pipeline
-bash reproduce_squad.sh
-
-# Extract qualitative SAE feature interpretations
-python3 eval/interpret_features.py
-```
-
-All compiled paper drafts are saved to `eval/report.md` (HellaSwag) and `eval/report_squad.md` (SQuAD), with their corresponding reliability and Pareto plots output to `eval/results/`.
+The LLM-Bridge code and its run instructions live in the sibling repo
+[`../llm-sae-difficulty`](../llm-sae-difficulty) (its `README.md` + `reproduce.sh`
+/ `reproduce_squad.sh` are the source of truth). Compiled drafts there are
+`eval/report.md` (HellaSwag) and `eval/report_squad.md` (SQuAD), with plots in
+`eval/results/`. Not duplicated here to keep a single source of truth.
 
 
