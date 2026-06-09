@@ -79,7 +79,7 @@ def main():
     print("Loading metadata, activations, SAE...")
     meta = pd.read_parquet(args.metadata)
     acts = load_file(args.activations)["encoder_embeddings"]
-    state = torch.load(args.sae_ckpt, map_location="cpu")
+    state = torch.load(args.sae_ckpt, map_location="cpu", weights_only=True)
     d_model, d_hidden = state["W_enc"].shape
     sae = TopKSAE(d_model=d_model, d_hidden=d_hidden, k=32)
     sae.load_state_dict(state)

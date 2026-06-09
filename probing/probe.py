@@ -12,7 +12,13 @@ import warnings
 # module for a single helper does not pay the statsmodels import cost. This
 # mirrors the unified modalities/tsfm.py adapter in fm-difficulty-probe.
 
-warnings.filterwarnings("ignore")
+# Suppress only the known-benign notices instead of blanket-ignoring every
+# warning: statsmodels' ADF/ACF helpers warn on short or near-constant windows,
+# and the shared core.probe ladder's liblinear fit emits a benign n_jobs notice.
+# Real deprecation/data warnings stay visible. (Mirrors core.probe's scoped
+# filter in fm-difficulty-probe.)
+warnings.filterwarnings("ignore", message=".*n_jobs.*liblinear.*")
+warnings.filterwarnings("ignore", module="statsmodels")
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(_REPO_ROOT, 'sae'))
@@ -93,7 +99,7 @@ def main():
     if not os.path.exists(args.sae_ckpt):
         sys.exit(f"[probe] SAE checkpoint '{args.sae_ckpt}' not found. "
                  f"Train the SAE first; refusing to probe with random weights.")
-    state = torch.load(args.sae_ckpt, map_location=device)
+    state = torch.load(args.sae_ckpt, map_location=device, weights_only=True)
     if "W_enc" not in state:
         sys.exit(f"[probe] '{args.sae_ckpt}' is not a TopKSAE checkpoint (no W_enc).")
     d_model_ckpt, d_hidden_ckpt = state["W_enc"].shape

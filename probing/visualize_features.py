@@ -48,7 +48,7 @@ def main():
 
     # Infer SAE dims from the checkpoint (single source of truth) and verify
     # they match the activations file's hidden dim.
-    state = torch.load(args.sae_ckpt, map_location="cpu")
+    state = torch.load(args.sae_ckpt, map_location="cpu", weights_only=True)
     d_model_ckpt, d_hidden_ckpt = state["W_enc"].shape
     if d_model_ckpt != acts.shape[-1]:
         sys.exit(f"[viz] SAE expects d_model={d_model_ckpt}, activations have "

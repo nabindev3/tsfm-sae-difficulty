@@ -124,7 +124,7 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
 
     print("Loading SAE...")
-    state = torch.load(args.sae_ckpt, map_location="cpu")
+    state = torch.load(args.sae_ckpt, map_location="cpu", weights_only=True)
     d_model_ckpt, d_hidden_ckpt = state["W_enc"].shape
     sae = TopKSAE(d_model=d_model_ckpt, d_hidden=d_hidden_ckpt, k=32)
     sae.load_state_dict(state)

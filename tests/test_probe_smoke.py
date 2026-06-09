@@ -69,7 +69,7 @@ def test_topk_sae_checkpoint_roundtrip():
         ckpt = os.path.join(d, "sae.pt")
         torch.save(sae.state_dict(), ckpt)
 
-        state = torch.load(ckpt)
+        state = torch.load(ckpt, weights_only=True)
         d_model_ckpt, d_hidden_ckpt = state["W_enc"].shape  # probe auto-detects dims
         assert (d_model_ckpt, d_hidden_ckpt) == (d_model, d_hidden)
 
