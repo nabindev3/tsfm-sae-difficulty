@@ -65,14 +65,21 @@ def make_steering_hook(sae, feat_idx=None, clamp_value=None):
     return hook
 
 
-def feature_99pct_train(sae, activations, train_mask):
-    """For each SAE feature, compute the 99th-percentile activation across all
-    TRAIN tokens. Returns shape (d_hidden,). This is the 'crank-it-up' value
-    for steering — i.e., 'force this feature to fire as hard as it ever fires
-    in training'."""
+def feature_99pct_train(sae, activations, train_mask, max_tokens=20000, seed=42):
+    """For each SAE feature, the 99th-percentile activation across TRAIN tokens
+    (shape (d_hidden,)) — the 'crank-it-up' clamp value for steering.
+
+    The full train set is ~250k tokens; the per-feature 99th percentile is
+    stable under subsampling, so we cap at `max_tokens` rows. The dense
+    (N, d_hidden) codes tensor and its column-wise quantile are what made the
+    original run blow up — capping keeps this to seconds and a few hundred MB."""
     sae.eval()
     tr_acts = activations[train_mask].to(torch.float32)
     flat = tr_acts.reshape(-1, tr_acts.shape[-1])
+    if flat.shape[0] > max_tokens:
+        g = torch.Generator().manual_seed(seed)
+        idx = torch.randperm(flat.shape[0], generator=g)[:max_tokens]
+        flat = flat[idx]
     with torch.no_grad():
         pre = (flat - sae.b_dec) @ sae.W_enc + sae.b_enc
         top_acts, top_idx = torch.topk(pre, sae.k, dim=-1)
@@ -92,17 +99,28 @@ def main():
     ap.add_argument("--model", default="amazon/chronos-t5-small")
     ap.add_argument("--context_length", type=int, default=512)
     ap.add_argument("--prediction_length", type=int, default=96)
-    ap.add_argument("--num_samples", type=int, default=100)
+    ap.add_argument("--num_samples", type=int, default=20,
+                    help="Forecast sample trajectories per window. 20 is plenty "
+                         "for a mean-shift demo on CPU; raise to 100+ on GPU.")
     ap.add_argument("--top_features", type=int, nargs="+",
                     default=[1465, 2717, 1425, 3702, 3678],
                     help="Default: the top-5 from causal_ablation.py.")
     ap.add_argument("--n_windows", type=int, default=4,
                     help="Number of confident (lowest-CRPS) test windows to steer.")
+    ap.add_argument("--max_train_tokens", type=int, default=20000,
+                    help="Cap tokens used for the per-feature 99th-pct clamp value.")
+    ap.add_argument("--threads", type=int, default=4,
+                    help="Cap torch CPU threads. The original runaway was kernel-time "
+                         "thread oversubscription across many forecasts; capping fixes it.")
     ap.add_argument("--out_dir", default="eval/results/steering")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+    # Prevent CPU thread oversubscription (the cause of the original runaway:
+    # 522% CPU, 11940s system time over 24 forecasts). Harmless on GPU.
+    if args.threads and args.threads > 0:
+        torch.set_num_threads(args.threads)
     os.makedirs(args.out_dir, exist_ok=True)
 
     print("Loading SAE...")
@@ -117,7 +135,8 @@ def main():
 
     # Per-feature clamp value: 99th percentile of code activations across train tokens.
     train_mask_tensor = torch.as_tensor((meta["split"].values == "train"))
-    p99 = feature_99pct_train(sae, acts, train_mask_tensor)
+    p99 = feature_99pct_train(sae, acts, train_mask_tensor,
+                              max_tokens=args.max_train_tokens, seed=args.seed)
     print("99th-pct clamp values for top features:")
     for f in args.top_features:
         print(f"  feat {f}: clamp = {p99[f]:.3f}")

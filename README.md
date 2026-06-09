@@ -177,8 +177,8 @@ python eval/recalibrate.py                    # < 30 s
 | **Causal ablation of top-5 features**                 | ✅   | ✅               | §4.6, hard-cohort +0.043 (CI brushes zero) |
 | **Calibration (ECE / Brier / reliability)**           | ✅   | ✅               | §4.7, raw ECE 0.48 |
 | **Recalibration (Platt + isotonic on 5-fold OOF)**    | ✅   | ✅               | §4.7, Platt ECE → **0.097**, AUROC preserved |
-| Steering demo                                         | ✅   | ❌ skipped       | runaway CPU; design retained for GPU port |
-| Multi-dataset / multi-backbone-activations / seeds / attention | scaffold | ❌ | future work |
+| Steering demo                                         | ✅   | ✅               | clamp top-5 feats to train-99th-pct; **~1.5 min CPU** (was a 40-min thread-oversubscription runaway — fixed via thread cap + subsampled percentile); honest small/variable shifts (8–53 % rel.) |
+| Multi-dataset / multi-backbone / seeds / attention    | ✅ runner | ⏳ user-run | `experiments/run_sweep.py` sweeps datasets×backbones×seeds×hook-target & aggregates real `probe_results.json`; `extract_activations.py --hook_target attention` added. Heavy runs left to GPU. |
 
 The probe carries a built-in guardrail: it refuses to run on metadata that
 lacks `split` / `crps_*`, or with a missing/corrupt SAE checkpoint. It will

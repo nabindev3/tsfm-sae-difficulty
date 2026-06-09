@@ -49,7 +49,7 @@ def compute_mase(forecast_mean, truth, context, season_length=24):
         naive_mae = 1e-5
     return mae / naive_mae
 
-def extract_and_cache(dataset_name, url, model_id, context_length, prediction_length, stride, batch_size, output_dir, max_batches, season_length=24, layer_idx=None, skip_predict=False):
+def extract_and_cache(dataset_name, url, model_id, context_length, prediction_length, stride, batch_size, output_dir, max_batches, season_length=24, layer_idx=None, skip_predict=False, hook_target="residual"):
     print(f"Loading dataset {dataset_name}...")
     df = pd.read_csv(url)
     ts_data = df['OT'].values
@@ -79,14 +79,20 @@ def extract_and_cache(dataset_name, url, model_id, context_length, prediction_le
         hidden_states = output[0] if isinstance(output, tuple) else output
         captured_acts.append(hidden_states.detach().cpu().to(torch.float16))
         
-    # Register hook on chosen encoder block (post-layer-norm residual). Default
-    # is mid (num_layers // 2); pass layer_idx to probe early/late layers.
+    # Register hook on chosen encoder block. Default layer is mid (num_layers //
+    # 2); pass layer_idx to probe early/late layers. A T5 encoder block's
+    # `.layer` is [T5LayerSelfAttention, T5LayerFF]; hook_target selects which
+    # sub-layer's residual output we capture:
+    #   "residual"  -> layer[-1] (post-FF residual stream; the headline target)
+    #   "attention" -> layer[0]  (post-self-attention residual)
     num_layers = pipeline.model.model.config.num_layers
     chosen_layer = (num_layers // 2) if layer_idx is None else int(layer_idx)
     if not (0 <= chosen_layer < num_layers):
         raise ValueError(f"layer_idx {chosen_layer} out of range [0, {num_layers})")
-    print(f"Hooking encoder.block[{chosen_layer}] (num_layers={num_layers})")
-    handle = pipeline.model.model.encoder.block[chosen_layer].layer[-1].register_forward_hook(hook)
+    sublayer_idx = {"residual": -1, "attention": 0}[hook_target]
+    print(f"Hooking encoder.block[{chosen_layer}].layer[{sublayer_idx}] "
+          f"(target={hook_target}, num_layers={num_layers})")
+    handle = pipeline.model.model.encoder.block[chosen_layer].layer[sublayer_idx].register_forward_hook(hook)
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -223,6 +229,8 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--output_dir", type=str, default="activations", help="Output directory")
     parser.add_argument("--layer_idx", type=int, default=None, help="Encoder block index to hook (default mid = num_layers // 2)")
+    parser.add_argument("--hook_target", type=str, default="residual", choices=["residual", "attention"],
+                        help="Which sub-layer residual to capture: 'residual' (post-FF, default) or 'attention' (post-self-attention)")
     parser.add_argument("--skip_predict", action="store_true", help="Skip CRPS/MASE labelling (fast layer-only extraction; reuse labels from a prior full run)")
 
     args = parser.parse_args()
@@ -241,4 +249,5 @@ if __name__ == "__main__":
         season_length=args.season_length,
         layer_idx=args.layer_idx,
         skip_predict=args.skip_predict,
+        hook_target=args.hook_target,
     )

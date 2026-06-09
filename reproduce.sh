@@ -26,8 +26,14 @@ $PY probing/visualize_features.py --sae_ckpt sae/checkpoints/sae_topk_32.pt
 echo "== [6/7] selective-prediction analysis (positive result) =="
 $PY eval/selective_prediction.py
 
-echo "== [7/7] populate report =="
+echo "== [7/8] populate report =="
 $PY eval/populate_report.py
+
+echo "== [8/8] steering demo (clamp top-5 features on confident windows) =="
+echo "   ~4 min on CPU (24 chronos forecasts); set STEERING=0 to skip."
+if [ "${STEERING:-1}" != "0" ]; then
+    $PY eval/steering_demo.py
+fi
 
 echo
 echo "Done. Results in probing/results/. "
