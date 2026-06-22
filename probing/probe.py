@@ -39,15 +39,23 @@ def compute_spectral_entropy(ts):
     Pxx = Pxx / np.sum(Pxx)
     return scipy.stats.entropy(Pxx)
 
-def compute_input_stats(df_meta, context_length=512, season_length=24):
+def compute_input_stats(df_meta, context_length=512, season_length=24,
+                        series_url="https://raw.githubusercontent.com/zhouhaoyi/ETDataset/main/ETT-small/ETTh1.csv",
+                        channel="OT"):
     """Eight classical features per window. The report claims eight; the prior
     version computed four. The missing ones (volatility, seasonal autocorr,
     trend slope, range) are precisely the ones a regime-shift detector would
-    target, so they need to be in the baseline for an honest comparison."""
+    target, so they need to be in the baseline for an honest comparison.
+
+    series_url/channel MUST match the series the activations were extracted from:
+    `start_ts` indexes into this array, so a mismatch silently computes the
+    baseline from the wrong series (the previous hardcoded ETTh1/OT would corrupt
+    every non-ETTh1 / non-OT run)."""
     from statsmodels.tsa.stattools import acf, adfuller
-    url = "https://raw.githubusercontent.com/zhouhaoyi/ETDataset/main/ETT-small/ETTh1.csv"
-    df_raw = pd.read_csv(url)
-    ts_data = df_raw["OT"].values.astype(np.float64)
+    df_raw = pd.read_csv(series_url)
+    if channel not in df_raw.columns:
+        sys.exit(f"[probe] channel {channel!r} not in {series_url} columns {list(df_raw.columns)}")
+    ts_data = df_raw[channel].values.astype(np.float64)
 
     stats = []
     for _, row in df_meta.iterrows():
@@ -80,6 +88,16 @@ def main():
     parser.add_argument("--d_model", type=int, default=512)
     parser.add_argument("--d_hidden", type=int, default=4096)
     parser.add_argument("--k", type=int, default=32)
+    parser.add_argument("--series_url",
+                        default="https://raw.githubusercontent.com/zhouhaoyi/ETDataset/main/ETT-small/ETTh1.csv",
+                        help="CSV the windows index into for input stats; MUST match the extraction series.")
+    parser.add_argument("--channel", default="OT", help="Series column for input stats (match extraction).")
+    parser.add_argument("--season_length", type=int, default=24,
+                        help="Seasonal period for the seasonal-ACF stat (24=hourly ETTh, 96=15-min ETTm).")
+    parser.add_argument("--scores_out", default="activations/probe_scores.parquet",
+                        help="Per-test-window probe scores output path.")
+    parser.add_argument("--results_out", default="probing/results/probe_results.json",
+                        help="Probe results JSON output path.")
     args = parser.parse_args()
 
     print("Loading data...")
@@ -88,7 +106,8 @@ def main():
     raw_acts = tensors["encoder_embeddings"] # (batch, seq, d_model)
     
     print("Computing input statistics...")
-    input_stats = compute_input_stats(df_meta)
+    input_stats = compute_input_stats(df_meta, season_length=args.season_length,
+                                      series_url=args.series_url, channel=args.channel)
     
     print("Loading SAE...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -189,12 +208,13 @@ def main():
     df_test = df_meta[test_mask].copy()
     for name, p in preds.items():
         df_test[f"pred_{LEGACY[name]}"] = p
-    df_test.to_parquet("activations/probe_scores.parquet")
-    print("\nSaved probe_scores.parquet")
+    os.makedirs(os.path.dirname(args.scores_out) or ".", exist_ok=True)
+    df_test.to_parquet(args.scores_out)
+    print(f"\nSaved {args.scores_out}")
 
     # Save probe results JSON
     import json
-    os.makedirs("probing/results", exist_ok=True)
+    os.makedirs(os.path.dirname(args.results_out) or ".", exist_ok=True)
 
     final_results = {
         "n_total": ladder.n_total,
@@ -228,9 +248,9 @@ def main():
         "P5_SAEOnly_CI_upper": ladder.probes[P5].ci_high,
         "chosen_C": {LEGACY[name]: pr.best_C for name, pr in ladder.probes.items()},
     }
-    with open("probing/results/probe_results.json", "w") as f:
+    with open(args.results_out, "w") as f:
         json.dump(final_results, f, indent=4)
-    print("Saved probing/results/probe_results.json")
+    print(f"Saved {args.results_out}")
 
 if __name__ == "__main__":
     main()

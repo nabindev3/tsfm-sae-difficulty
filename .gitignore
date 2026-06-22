@@ -13,8 +13,11 @@ activations/*.safetensors
 activations/*.parquet
 activations_base/
 activations_late/
+activations_depth/
 sae/checkpoints/*.pt
 sae/checkpoints_late/
+sae/checkpoints_depth/
+experiments/runs/
 *.safetensors
 *.log
 .vscode/

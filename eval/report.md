@@ -20,9 +20,12 @@ purged temporal split, the SAE features yield an incremental AUROC of
 input-statistics probe as a selective-prediction signal, however, recovers a
 positive result: at 50 % coverage, mean CRPS drops 8.1 % from no abstention
 (1.527 → 1.403), with AURC 1.215 vs random 1.374 and oracle 0.850 — capturing
-roughly 30 % of the oracle's available AURC improvement. We report both the
-null SAE result and the positive selective-prediction result honestly,
-without post-hoc reframing of the metric.
+roughly 30 % of the oracle's available AURC improvement. Crucially, this cheap
+probe also **beats the standard UQ baseline** — the model's own
+conformalized predictive-interval width — which captures only 9–11 % of the
+oracle headroom and is *worse than no abstention* at aggressive coverage (§4.9).
+We report both the null SAE result and the positive selective-prediction result
+honestly, without post-hoc reframing of the metric.
 
 ## 1. Introduction
 TSFMs (Chronos, TimesFM, Moirai) deliver strong zero-shot forecasts but offer
@@ -164,6 +167,28 @@ gap closes to a null (Δ(SAE − Raw) = +0.061, CI crosses zero). Where the
 raw representation carries less signal, the SAE's compression is at parity
 with raw — consistent with a sparse autoencoder that is doing approximately
 the right thing on inputs that simply do not carry the target signal.
+
+**Full encoder-depth sweep.** To rule out the null being a two-point artifact,
+we extended the check to *every* encoder block (0–5) — embed-only
+(`--skip_predict`, reusing the committed CRPS labels), the whole sweep in
+~17 min (`experiments/depth_sweep.sh`, `probing/results/depth/`):
+
+| Block | P1 stats | P2 stats+raw | P3 stats+sae | Δ(SAE−stats) | Δ(SAE−raw) |
+|-------|----------|--------------|--------------|--------------|------------|
+| 0 (early) | 0.654 | 0.576 | 0.484 | −0.170 | −0.093 |
+| 1     | 0.654 | 0.584 | 0.596 | **−0.058** | +0.012 |
+| 2     | 0.654 | 0.637 | 0.450 | −0.204 | −0.187 |
+| 3 (mid)   | 0.654 | 0.584 | 0.426 | **−0.228** | −0.158 |
+| 4     | 0.654 | 0.557 | 0.502 | −0.152 | −0.055 |
+| 5 (late)  | 0.654 | 0.450 | 0.511 | −0.143 | +0.061 |
+
+The null is **monotone in neither direction but robust at every depth**:
+Δ(SAE−stats) is negative across all six blocks (−0.058 to −0.228), deepest at
+the mid-encoder (blocks 2–3) and shallowest at block 1, and never turns
+positive. Blocks 3 and 5 reproduce §4.2's headline and late-layer numbers
+exactly, confirming the sweep is faithful. Input statistics beat the SAE
+features at *every* encoder layer of chronos-t5-small — the result is not a
+layer-selection artifact.
 
 ### 4.3 Selective prediction (positive result on the same data)
 
@@ -353,6 +378,178 @@ Figures 5–6: `eval/results/reliability_diagram.png` (raw probes),
 `eval/results/reliability_recalibrated.png` (Platt + isotonic, P1 and P3).
 Saved: `eval/results/calibration_results.json`,
 `eval/results/recalibration_results.json`.
+
+### 4.8 Pre-registered power analysis for the causal ablation
+
+§4.6 left the causal claim underpowered: the aggregate ablation effect on hard
+windows is +0.043 CRPS but its CI lower bound barely crosses zero at n=56. Before
+"powering up" (lowering the hard threshold or pooling across datasets) we
+**pre-register** the confirmatory design — fixing the endpoint, test, and target
+n *from the pilot's own noise* so the powered run is confirmatory rather than a
+garden of forking paths. The analysis (`eval/power_analysis.py`) uses only the
+already-collected `causal_ablation.parquet`; no new forecasts.
+
+**Pre-registration.** Unit = test window. Per-window statistic
+`d_i = mean_f[crps_ablate(f,i) − crps_sae_recon(i)]` over the top-5 features
+(the SAE-recon condition is the within-window control). Primary endpoint
+`mean_{hard} d_i` with hard = top CRPS tercile; H1: `mean d_i > 0` (one-sided —
+the direction is fixed now, from the 5/5 consistent positive signs in §4.6, not
+re-chosen later). Test: paired bootstrap (B=2000), reject if the one-sided 95%
+lower bound > 0; planning curves use the z-approximation
+`n = ((z_{1−α}+z_{1−β})·sd/effect)²`. α=0.05, target power 0.80.
+
+**Pilot effect/noise and required n** (reproduces §4.6: tercile effect +0.0427
+matches the reported +0.043):
+
+| Hard threshold | n_hard | effect (CRPS) | sd | current power | n for 80 % power (1-sided / 2-sided) |
+|----------------|--------|---------------|------|---------------|--------------------------------------|
+| top tercile (primary) | 56 | +0.0427 | 0.198 | **0.49** | **132 / 168** |
+| top 40 % | 67 | +0.0427 | 0.185 | 0.60 | 116 / 147 |
+| top 50 % | 84 | +0.0311 | 0.181 | 0.47 | 210 / 266 |
+
+**Read.** At the current n=56 the experiment had **49 % power** — a coin flip —
+which is *why* §4.6 is null; the pilot was simply too small to resolve a +0.043
+effect at sd≈0.20. Reaching 80 % power needs **n≈132 (one-sided) / 168
+(two-sided) hard windows, ≈2.4× the current count** (simulated power: 0.53 at
+n=60 → 0.79 at n=130 → 0.88 at n=170). Crucially, **lowering the hard threshold
+is the wrong lever past ~40 %**: at the top-50 % cut the cohort grows to n=84 but
+the effect *dilutes* to +0.031 (less-hard windows carry less causal signal, per
+§4.6's easy-cohort null), so the required n *rises* to 210. **Pooling hard
+windows across datasets at a fixed top-tercile threshold — constant effect, more
+n — strictly dominates.** Four ETT series at ~56 hard test windows each yield
+~224 pooled hard windows, comfortably past the 168 needed for two-sided 80 %
+power. This links the confirmatory ablation to the dataset replication (§5,
+future work): the powered run is the per-window deltas from each replicated
+dataset, concatenated, tested once under the pre-registration above.
+
+The diff-in-diff (hard − easy) is +0.050 (SE 0.029, z=1.76, one-sided p=0.039) —
+already nominally significant one-sided, consistent with §4.6's two-sided CI that
+just straddles zero. Figure 7: `eval/results/power_analysis.png` (power and
+minimum-detectable-effect vs n). Saved: `eval/results/power_analysis.json`.
+
+### 4.9 Conformal-prediction baseline (the UQ method we must beat)
+
+§4.3 shows the P1 probe beats random and a SAE probe on selective prediction,
+but the obvious missing comparator is the **model's own predictive uncertainty**
+— the standard label-free UQ signal. We recover it (`eval/extract_uncertainty.py`
+re-runs the 100-sample forecast and saves the central-90 % band width per
+window; reproducibility vs the committed CRPS labels: **Pearson 0.989, Spearman
+0.982**, n=650) and evaluate it two ways (`eval/conformal_baseline.py`).
+
+**(A) Split-conformal coverage.** Chronos's *raw* central-90 % interval covers
+only **0.594** of test windows (nominal 0.90) — the sampled intervals are
+severely over-confident. CQR-style split-conformal calibration on the train
+split restores marginal coverage (**0.976** at α=0.1, **0.922** at α=0.2). But
+the guarantee is only *marginal*: conditional on the **truly-hard** tercile it
+**under-covers** — 0.852 vs 0.976 marginal at α=0.1, and **0.593 vs 0.922** at
+α=0.2 (n=27 hard). The standard UQ method silently fails exactly where coverage
+matters most, motivating difficulty-aware (group-conditional) conformal.
+
+**(B) Selective-prediction frontier — head to head.** Ranking test windows by the
+conformal band width (the deployable, truth-free signal; CQR's constant
+correction does not change the ranking) and by predictive std, against P1 and
+the oracle/random anchors (mean retained CRPS, lower better):
+
+| Signal | @20 % cov | @50 % cov | AURC ↓ | Oracle headroom captured |
+|--------|-----------|-----------|--------|--------------------------|
+| **P1 input-stats** | **1.083** | 1.403 | **1.215** | **+30 %** |
+| Conformal band width | 1.591 | **1.355** | 1.325 | +9 % |
+| Predictive std | 1.606 | **1.338** | 1.318 | +11 % |
+| P3 stats+SAE | 1.670 | 1.542 | 1.436 | −12 % |
+| Oracle | 0.641 | 0.872 | 0.850 | (ceiling) |
+| Random | — | — | 1.374 | 0 % |
+
+(no-abstention mean CRPS = 1.527; headroom = (random−signal)/(random−oracle).)
+
+**Honest read.** On the integrated metric the cheap input-stats probe **beats the
+model's own conformalized uncertainty** — AURC 1.215 vs 1.325/1.318, capturing
+**30 % of the oracle's headroom vs 9–11 %**. The gap is starkest under aggressive
+abstention: at 20 % coverage P1 nearly halves the distance to the oracle
+(1.083), while *both* UQ signals are **worse than not abstaining at all**
+(1.59–1.61 > 1.527) — Chronos's predictive width fails to flag its own most
+reliable windows. There is one honest nuance: around 50 % coverage the UQ
+signals edge P1 (1.34–1.36 vs 1.403), so predictive width is mildly useful at
+moderate retention. SAE-based routing (P3) remains at/below random throughout
+(−12 %), reaffirming §4.2/§4.3. Net: the headline positive result survives the
+comparison reviewers most expect — a 512-step window's classical statistics are
+a *better* label-free abstention signal for Chronos on ETTh1 than the model's
+own conformal uncertainty, and far better at the high-confidence operating
+points selective prediction actually uses.
+
+Figure 8: `eval/results/risk_coverage_conformal.png`. Saved:
+`eval/results/conformal_baseline.json`,
+`eval/results/uncertainty_ETTh1_chronos-t5-small.parquet`.
+
+### 4.10 Robustness of the null to baseline strength and label choice
+
+Two ways the §4.2 null could be an artifact: a *weak* P1 baseline, or the
+specific CRPS-top-25 % *binarization*. We rule out both (`probing/probe_robustness.py`),
+reusing the committed activations and the saved forecasts (no new TSFM pass).
+
+**(a) Stronger baseline.** We augment the eight classical stats with STL trend &
+seasonal strength, the Hurst exponent, and the model's own forecast-interval
+width (Exp1's `band_width_90` — the natural difficulty signal). The SAE must now
+beat *this*:
+
+| Baseline (CRPS top-25 % label) | P1 AUROC | P3 (stats+SAE) | Δ(SAE − stats) |
+|--------------------------------|----------|----------------|----------------|
+| 8 classical stats (= §4.2)     | 0.654    | 0.426 | −0.228 [−0.366, −0.092] |
+| + STL + Hurst + interval-width | **0.718** | 0.426 | **−0.292 [−0.429, −0.151]** |
+
+Strengthening the baseline *raises* P1 (0.654 → 0.718) and pushes the SAE
+**further** behind (Δ −0.228 → −0.292) — the opposite of what a weak-baseline
+artifact would do. The model's own interval width, on its own, is a weak
+difficulty predictor (test AUROC **0.593**), consistent with §4.9.
+
+**(b) Label variation.** Repeating with a **MASE** top-25 % label keeps the null
+(Δ(SAE − stats) = −0.178 [−0.295, −0.055]), so it is not CRPS-specific. Dropping
+binarization entirely and predicting the **continuous** CRPS target (Ridge → test
+Spearman) tells the same story:
+
+| Feature block | test Spearman ρ (continuous CRPS) |
+|---------------|-----------------------------------|
+| 8 stats       | **+0.361** |
+| stats + STL/Hurst/interval-width | +0.316 |
+| raw activations | +0.088 |
+| SAE codes     | +0.028 |
+| stats + SAE   | +0.026 |
+
+Classical statistics rank forecast difficulty (ρ ≈ 0.36) while SAE codes barely
+do (ρ ≈ 0.03), and concatenating 6 144 SAE features onto the 12 stats *destroys*
+the stats signal (0.32 → 0.03) — the high-dim codes are noise for this target.
+The null is robust to baseline strength **and** to the label / its binarization.
+Saved: `probing/results/robustness.json`.
+
+### 4.11 Cross-dataset replication (ETTh2, ETTm1, ETTm2)
+
+The single-series scope (ETTh1) is the biggest external-validity gap, so we
+replicate the probe ladder on three more ET-T series (`experiments/run_sweep.py`).
+**Fidelity caveat:** these are *lean* runs — `num_samples=20` and ~350 windows
+(stride ×2) — because full-fidelity CPU extraction is ~14 h/series on this 16 GB
+machine (the memory working set swap-thrashes; lean keeps it in RAM and runs
+~50× faster). Lean is valid for the *sign* of Δ(SAE−stats) — the null question —
+but adds label noise and shrinks n, which inflates CIs and understates absolute
+AUROC. A GPU rerun at full fidelity is future work.
+
+| Series | n_test | hard % | P1 stats | P3 stats+SAE | Δ(SAE−stats) 95 % CI |
+|--------|--------|--------|----------|--------------|----------------------|
+| ETTh1 (headline, full) | 167 | 16 % | 0.654 | 0.426 | −0.228 [−0.366, −0.092] |
+| ETTh2 (lean) | 84 | 32 % | 0.500 | 0.504 | +0.004 [−0.134, +0.137] |
+| ETTm1 (lean) | 102 | 13 % | 0.620 | 0.506 | −0.113 [−0.356, +0.144] |
+| ETTm2 (lean) | 102 | 29 % | 0.515 | 0.531 | +0.016 [−0.156, +0.203] |
+
+**Read.** The central result replicates: **SAE features never beat input
+statistics** — Δ(SAE−stats) straddles zero on all three new series (no positive
+significant delta anywhere), so the "SAE adds no incremental difficulty signal"
+null is not ETTh1-specific. The honest nuance is on the *baseline*: P1 itself is
+a strong difficulty predictor only on ETTh1 (0.654) and ETTm1 (0.620), and falls
+to near-chance on ETTh2/ETTm2 (0.50/0.52). Part of that is likely the lean
+fidelity (noisier 20-sample CRPS labels, ~half the windows) rather than those
+series being intrinsically unpredictable — separating the two needs a
+full-fidelity/GPU rerun. So the §4.3 *positive* selective-prediction result
+should be read as ETTh1-demonstrated, not yet shown to generalize; the *null*
+(SAE ≤ stats) does generalize across all four series. Saved:
+`experiments/runs/sweep_summary.{json,csv}`.
 
 ## 5. Limitations
 - Single series (ETTh1), single TSFM backbone (chronos-t5-small). Layer

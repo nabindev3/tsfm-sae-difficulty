@@ -27,7 +27,6 @@ from __future__ import annotations
 import os
 import sys
 import json
-import shutil
 import argparse
 import subprocess
 from itertools import product
@@ -42,15 +41,21 @@ DATASET_URLS = {
     "ETTm1": "https://raw.githubusercontent.com/zhouhaoyi/ETDataset/main/ETT-small/ETTm1.csv",
     "ETTm2": "https://raw.githubusercontent.com/zhouhaoyi/ETDataset/main/ETT-small/ETTm2.csv",
 }
+# Per-dataset sampling cadence. ETTh* is hourly (daily season m=24); ETTm* is
+# 15-minute (daily season m=96). Stride is chosen so each series yields ~700
+# windows -> comparable window counts and per-dataset compute.
+DATASET_PARAMS = {
+    "ETTh1": {"stride": 24, "season": 24},
+    "ETTh2": {"stride": 24, "season": 24},
+    "ETTm1": {"stride": 96, "season": 96},
+    "ETTm2": {"stride": 96, "season": 96},
+}
 # Backbone short-name -> HuggingFace id.
 MODEL_IDS = {
     "small": "amazon/chronos-t5-small",
     "base":  "amazon/chronos-t5-base",
     "large": "amazon/chronos-t5-large",
 }
-
-# probe.py writes these fixed paths; we copy the JSON out after each run.
-PROBE_JSON = os.path.join(REPO, "probing", "results", "probe_results.json")
 
 
 def _run(cmd, dry_run):
@@ -81,9 +86,15 @@ def run_condition(dataset, model, hook, layer, seed, args):
     acts_file = os.path.join(acts_dir, f"{dataset}_activations.safetensors")
     meta_file = os.path.join(acts_dir, f"{dataset}_metadata.parquet")
     ckpt_file = os.path.join(ckpt_dir, "sae_topk_32.pt")
+    scores_file = os.path.join(run_dir, "probe_scores.parquet")
+    p = DATASET_PARAMS[dataset]
+    stride = p["stride"] * args.stride_mult  # mult>1 -> fewer windows (lean replication)
 
     extract = [PY, "extract_activations.py",
                "--dataset", dataset, "--url", DATASET_URLS[dataset],
+               "--channel", args.channel, "--num_samples", str(args.num_samples),
+               "--batch_size", str(args.batch_size),
+               "--stride", str(stride), "--season_length", str(p["season"]),
                "--model", MODEL_IDS[model], "--output_dir", acts_dir,
                "--hook_target", hook, "--seed", str(seed)]
     if layer is not None:
@@ -93,18 +104,22 @@ def run_condition(dataset, model, hook, layer, seed, args):
              "--activations", acts_file, "--metadata", meta_file,
              "--output_dir", ckpt_dir, "--seed", str(seed)]
 
+    # Pass the actual series/channel/season so the P1 input-stats baseline is
+    # computed from THIS dataset, not a hardcoded ETTh1/OT, and write per-run
+    # outputs so conditions never clobber each other.
     probe = [PY, "probing/probe.py",
              "--metadata", meta_file, "--activations", acts_file,
-             "--sae_ckpt", ckpt_file]
+             "--sae_ckpt", ckpt_file,
+             "--series_url", DATASET_URLS[dataset], "--channel", args.channel,
+             "--season_length", str(p["season"]),
+             "--scores_out", scores_file, "--results_out", out_json]
 
     _run(extract, args.dry_run)
     _run(train, args.dry_run)
     _run(probe, args.dry_run)
 
-    if not args.dry_run:
-        if not os.path.exists(PROBE_JSON):
-            raise SystemExit(f"[sweep] expected {PROBE_JSON} after probe; not found.")
-        shutil.copy2(PROBE_JSON, out_json)
+    if not args.dry_run and not os.path.exists(out_json):
+        raise SystemExit(f"[sweep] expected {out_json} after probe; not found.")
     return out_json
 
 
@@ -146,6 +161,14 @@ def main():
     ap.add_argument("--datasets", nargs="+", default=["ETTh1"], choices=list(DATASET_URLS))
     ap.add_argument("--models", nargs="+", default=["small"], choices=list(MODEL_IDS))
     ap.add_argument("--seeds", nargs="+", type=int, default=[42])
+    ap.add_argument("--channel", default="OT",
+                    help="Series column to forecast (default OT; ETT also has HUFL,HULL,MUFL,MULL,LUFL,LULL).")
+    ap.add_argument("--num-samples", type=int, default=100,
+                    help="Chronos samples per window for CRPS labels (100=headline; 20-30 ~5x faster for replication).")
+    ap.add_argument("--batch-size", type=int, default=8,
+                    help="Extraction batch size. Default 8 (memory-safe on 16GB); the old default 32 x 100 samples OOM-kills.")
+    ap.add_argument("--stride-mult", type=int, default=1,
+                    help="Multiply the per-dataset stride to thin the window count (e.g. 2 -> ~half the windows) for lean CPU replication.")
     ap.add_argument("--hook-targets", nargs="+", default=["residual"],
                     choices=["residual", "attention"])
     ap.add_argument("--layers", nargs="+", default=["mid"],

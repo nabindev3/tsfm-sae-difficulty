@@ -125,7 +125,12 @@ def main():
     ap.add_argument("--num_samples", type=int, default=50,
                     help="Lower than the 100 used for headline labels — ablation "
                          "compares relative ΔCRPS, not absolute, so the extra "
-                         "MC noise is acceptable for compute savings.")
+                         "MC noise is acceptable for compute savings. For the "
+                         "matched-MC baseline (Exp6) set this to 100 or 200.")
+    ap.add_argument("--matched_natural", action="store_true",
+                    help="Compute the natural baseline via a hook-free predict at "
+                         "--num_samples (matched MC), instead of reusing crps_raw "
+                         "(100 samples). Deletes the §4.6 MC-noise caveat.")
     ap.add_argument("--k_features", type=int, default=5)
     ap.add_argument("--hard_quantile", type=float, default=0.85)
     ap.add_argument("--max_windows", type=int, default=None,
@@ -186,9 +191,20 @@ def main():
         f_recon = predict_with_hook(pipeline, hook_module, sae_recon_hook,
                                     context, args.prediction_length, args.num_samples)
         crps_recon = compute_crps(f_recon[0], truth)
+        # Matched-MC natural baseline: hook-free predict at the SAME num_samples
+        # as recon/ablate, so Δ(recon − natural) carries no Monte-Carlo-count
+        # asymmetry (the §4.6 caveat: 50-sample recon vs 100-sample crps_raw).
+        # The original crps_raw is retained for reference only.
+        if args.matched_natural:
+            f_nat = predict_with_hook(pipeline, hook_module, None,
+                                      context, args.prediction_length, args.num_samples)
+            crps_nat_matched = float(compute_crps(f_nat[0], truth))
+        else:
+            crps_nat_matched = float(row["crps_raw"])
         out = {"window_id": int(row["window_id"]),
                "start_ts": s,
                "crps_natural": float(row["crps_raw"]),
+               "crps_natural_matched": crps_nat_matched,
                "crps_sae_recon": float(crps_recon)}
         # Per-feature ablations
         for feat in top:
@@ -210,7 +226,10 @@ def main():
     def _ci(arr):
         return [float(np.percentile(arr, 2.5)), float(np.percentile(arr, 97.5))]
 
-    natural = df_out["crps_natural"].values
+    # Use the matched-MC natural baseline for the recon delta when available, so
+    # Δ(SAE recon − natural) is free of the Monte-Carlo-count caveat.
+    natural_col = "crps_natural_matched" if "crps_natural_matched" in df_out.columns else "crps_natural"
+    natural = df_out[natural_col].values
     recon = df_out["crps_sae_recon"].values
     delta_sae = recon - natural
 
@@ -227,6 +246,9 @@ def main():
         "n_windows": n,
         "top_features": top,
         "abs_probe_coefs": [float(coef[i]) for i in top],
+        "natural_baseline": natural_col,
+        "num_samples": args.num_samples,
+        "matched_natural": bool(args.matched_natural),
         "mean_crps_natural": float(natural.mean()),
         "mean_crps_sae_recon": float(recon.mean()),
         "delta_sae_recon": {

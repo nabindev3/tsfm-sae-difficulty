@@ -49,10 +49,12 @@ def compute_mase(forecast_mean, truth, context, season_length=24):
         naive_mae = 1e-5
     return mae / naive_mae
 
-def extract_and_cache(dataset_name, url, model_id, context_length, prediction_length, stride, batch_size, output_dir, max_batches, season_length=24, layer_idx=None, skip_predict=False, hook_target="residual"):
-    print(f"Loading dataset {dataset_name}...")
+def extract_and_cache(dataset_name, url, model_id, context_length, prediction_length, stride, batch_size, output_dir, max_batches, season_length=24, layer_idx=None, skip_predict=False, hook_target="residual", channel="OT", num_samples=100):
+    print(f"Loading dataset {dataset_name} (channel={channel})...")
     df = pd.read_csv(url)
-    ts_data = df['OT'].values
+    if channel not in df.columns:
+        raise SystemExit(f"channel {channel!r} not in {url} columns {list(df.columns)}")
+    ts_data = df[channel].values
     
     total_length = len(ts_data)
     # We need both context and horizon
@@ -144,7 +146,7 @@ def extract_and_cache(dataset_name, url, model_id, context_length, prediction_le
                 forecasts = pipeline.predict(
                     batch_ts_tensor,
                     prediction_length=prediction_length,
-                    num_samples=100
+                    num_samples=num_samples
                 )
                 if torch.is_tensor(forecasts):
                     forecasts = forecasts.cpu().numpy()
@@ -232,6 +234,8 @@ if __name__ == "__main__":
     parser.add_argument("--hook_target", type=str, default="residual", choices=["residual", "attention"],
                         help="Which sub-layer residual to capture: 'residual' (post-FF, default) or 'attention' (post-self-attention)")
     parser.add_argument("--skip_predict", action="store_true", help="Skip CRPS/MASE labelling (fast layer-only extraction; reuse labels from a prior full run)")
+    parser.add_argument("--channel", type=str, default="OT", help="CSV column to forecast (default OT; ETTh1 also has HUFL,HULL,MUFL,MULL,LUFL,LULL)")
+    parser.add_argument("--num_samples", type=int, default=100, help="Chronos forecast samples per window for CRPS/MASE labels (100=headline fidelity; lower e.g. 20-30 is ~5x faster and keeps the hard/easy ranking robust for replication runs)")
 
     args = parser.parse_args()
     set_seed(args.seed)
@@ -250,4 +254,6 @@ if __name__ == "__main__":
         layer_idx=args.layer_idx,
         skip_predict=args.skip_predict,
         hook_target=args.hook_target,
+        channel=args.channel,
+        num_samples=args.num_samples,
     )
