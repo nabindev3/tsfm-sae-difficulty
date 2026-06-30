@@ -65,13 +65,15 @@ def _run(cmd, dry_run):
     subprocess.run(cmd, check=True, cwd=REPO)
 
 
-def condition_tag(dataset, model, hook, layer, seed):
+def condition_tag(dataset, model, hook, layer, seed, channel="OT", horizon=96):
     layer_s = "mid" if layer is None else f"L{layer}"
-    return f"{dataset}_{model}_{hook}_{layer_s}_s{seed}"
+    ch = "" if channel == "OT" else f"_{channel}"
+    hz = "" if horizon == 96 else f"_H{horizon}"
+    return f"{dataset}_{model}_{hook}_{layer_s}_s{seed}{ch}{hz}"
 
 
 def run_condition(dataset, model, hook, layer, seed, args):
-    tag = condition_tag(dataset, model, hook, layer, seed)
+    tag = condition_tag(dataset, model, hook, layer, seed, args.channel, args.horizon)
     run_dir = os.path.join(args.out_root, tag)
     acts_dir = os.path.join(run_dir, "activations")
     ckpt_dir = os.path.join(run_dir, "checkpoints")
@@ -93,7 +95,7 @@ def run_condition(dataset, model, hook, layer, seed, args):
     extract = [PY, "extract_activations.py",
                "--dataset", dataset, "--url", DATASET_URLS[dataset],
                "--channel", args.channel, "--num_samples", str(args.num_samples),
-               "--batch_size", str(args.batch_size),
+               "--batch_size", str(args.batch_size), "--prediction_length", str(args.horizon),
                "--stride", str(stride), "--season_length", str(p["season"]),
                "--model", MODEL_IDS[model], "--output_dir", acts_dir,
                "--hook_target", hook, "--seed", str(seed)]
@@ -169,6 +171,8 @@ def main():
                     help="Extraction batch size. Default 8 (memory-safe on 16GB); the old default 32 x 100 samples OOM-kills.")
     ap.add_argument("--stride-mult", type=int, default=1,
                     help="Multiply the per-dataset stride to thin the window count (e.g. 2 -> ~half the windows) for lean CPU replication.")
+    ap.add_argument("--horizon", type=int, default=96,
+                    help="Forecast horizon (prediction_length). Default 96; sweep 24/336/720 to test horizon-dependence of the null.")
     ap.add_argument("--hook-targets", nargs="+", default=["residual"],
                     choices=["residual", "attention"])
     ap.add_argument("--layers", nargs="+", default=["mid"],
@@ -185,7 +189,7 @@ def main():
     rows = []
     for dataset, model, hook, layer, seed in combos:
         jpath = run_condition(dataset, model, hook, layer, seed, args)
-        rows.append({"tag": condition_tag(dataset, model, hook, layer, seed),
+        rows.append({"tag": condition_tag(dataset, model, hook, layer, seed, args.channel, args.horizon),
                      "json": jpath, "dataset": dataset, "model": model,
                      "hook": hook, "layer": ("mid" if layer is None else layer),
                      "seed": seed})

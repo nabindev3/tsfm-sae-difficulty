@@ -331,6 +331,12 @@ series, or a backbone with richer mid-encoder representations) would resolve
 whether the consistent direction is real signal or coordinated bootstrap
 noise.
 
+**⚠ Superseded by §4.13.** A matched-100-sample re-run resolves exactly the
+question posed above: the "consistent positive direction" does **not** survive
+higher Monte-Carlo fidelity — the hard-window effect reverses to −0.049. The
++0.043 hint here was bootstrap/MC noise, not a causal signal; read this section
+together with §4.13.
+
 Saved: `eval/results/causal_ablation.parquet` (per-window),
 `eval/results/causal_ablation.json` (aggregate).
 
@@ -426,6 +432,12 @@ The diff-in-diff (hard − easy) is +0.050 (SE 0.029, z=1.76, one-sided p=0.039)
 already nominally significant one-sided, consistent with §4.6's two-sided CI that
 just straddles zero. Figure 7: `eval/results/power_analysis.png` (power and
 minimum-detectable-effect vs n). Saved: `eval/results/power_analysis.json`.
+
+**⚠ Premise superseded by §4.13.** This analysis is predicated on the §4.6
++0.043 pilot effect. The matched-100-sample re-run (§4.13) shows that effect does
+not replicate — it reverses sign — so "pool data to reach 80 % power" is moot:
+there is no robust positive effect to confirm. The power-analysis *method* stands
+as a worked example; its specific target effect does not.
 
 ### 4.9 Conformal-prediction baseline (the UQ method we must beat)
 
@@ -549,7 +561,121 @@ series being intrinsically unpredictable — separating the two needs a
 full-fidelity/GPU rerun. So the §4.3 *positive* selective-prediction result
 should be read as ETTh1-demonstrated, not yet shown to generalize; the *null*
 (SAE ≤ stats) does generalize across all four series. Saved:
-`experiments/runs/sweep_summary.{json,csv}`.
+`experiments/runs/sweep_summary.{json,csv}` (and per-run `probe_results.json`).
+
+### 4.12 Does the null survive backbone capacity? (chronos-t5-base, 200M)
+
+The key reviewer question: maybe a 60M backbone is simply too small for the
+mid-encoder to host difficulty features. We re-extract, re-train the SAE, and
+re-probe with **chronos-t5-base** (200M, `d_model=768`, ~3.3× small's parameters)
+and compare to small at *matched* lean fidelity on ETTh1 (num_samples=20, ~350
+windows, n_test=84):
+
+| Backbone | Params | P1 stats | P3 stats+SAE | Δ(SAE−stats) 95 % CI |
+|----------|--------|----------|--------------|----------------------|
+| small | 60 M | 0.542 | 0.395 | −0.147 [−0.298, +0.009] |
+| base  | 200 M | 0.643 | 0.445 | −0.198 [−0.412, +0.018] |
+
+**Read.** The null **survives the capacity jump**: at base, SAE features still
+fail to beat input statistics (Δ negative, CI only barely touching zero), and the
+gap is if anything *slightly larger* than at small — the 3.3× backbone does not
+make the mid-encoder SAE features incrementally predictive of difficulty.
+Notably, the classical baseline P1 strengthens at base (0.542 → 0.643),
+consistent with base's richer representation carrying more difficulty signal —
+but that signal is captured by cheap input statistics, not added to by the SAE.
+Caveat: matched lean fidelity (the small-lean P1=0.542 understates the
+full-fidelity headline 0.654; the small-vs-base comparison is internally valid as
+both use identical fidelity). **chronos-t5-large (710M) is deferred** — not
+cached, and 710M CPU extraction is infeasible on this machine (needs a GPU).
+
+### 4.13 Matched-MC causal ablation — deletes the caveat, and *refutes* §4.6's positive hint
+
+§4.6 carried two MC-fidelity caveats: the natural baseline used 100 samples while
+the recon/ablation conditions used 50. We re-ran the full ablation with **every
+condition at a matched 100 samples** (`causal_ablation.py --matched_natural
+--num_samples 100`; ~23 h on CPU). Two results:
+
+1. **Reconstruction baseline is a clean null.** Δ(SAE-recon − natural), now
+   100-vs-100, is **+0.0058 [−0.043, +0.057]** (was −0.023 with the 50-vs-100
+   asymmetry). Inserting the SAE reconstruction into the forward pass does not
+   measurably change CRPS — the caveat is deleted, cleanly.
+
+2. **The §4.6 hard-window positive hint does *not* replicate — it reverses.** The
+   aggregate ablation effect on the hard tercile flips from §4.6's **+0.043
+   [−0.008, +0.095]** (50 samples) to **−0.049 [−0.086, −0.015]** at matched 100
+   samples — now a *significantly negative* point estimate, with the two CIs
+   essentially non-overlapping (diff-in-diff −0.070, SE 0.020, z=−3.49). The
+   per-feature all-window deltas are mixed and near zero (1465 −0.016, 2717
+   +0.016, 1425 −0.010, 3702 +0.003, 3678 −0.003).
+
+**Honest read.** The §4.6 "5-of-5 features positive on hard windows, aggregate
++0.043" was **within Monte-Carlo noise at 50 samples and does not survive at
+100** — the sign even flips. So there is **no robust positive causal contribution**
+of the top difficulty-predictive features to forecast quality; the §4.6
+directional hint should be treated as an artifact, not evidence. We do not
+over-claim the *negative* estimate either (single seed, fresh forecast draws;
+the features were selected to predict difficulty, not to help forecasts) —
+pinning its sign down would need multiple seeds. This **supersedes §4.6's
+interpretation and the §4.8 power analysis** (which was predicated on the +0.043
+pilot): the right confirmatory conclusion is that the correlational §4.2 null is
+*not* rescued by a causal effect. Saved: `eval/results/matched_mc/`.
+
+### 4.14 Is the difficulty signal channel-dependent? (ETTh1's other six channels)
+
+The headline uses the `OT` channel only. We run the lean probe on all seven ETTh1
+channels (small, num_samples=20, n_test=84; `experiments/channel_sweep.sh`):
+
+| Channel | hard % | P1 stats | P3 stats+SAE | Δ(SAE−stats) 95 % CI |
+|---------|--------|----------|--------------|----------------------|
+| OT      | 18 % | 0.542 | 0.395 | −0.147 [−0.298, +0.009] |
+| HUFL    | 49 % | 0.518 | 0.500 | −0.018 [−0.136, +0.110] |
+| HULL    | 20 % | 0.586 | 0.500 | −0.086 [−0.252, +0.095] |
+| LULL    | 21 % | 0.608 | 0.476 | −0.131 [−0.318, +0.069] |
+| MUFL    | 48 % | 0.613 | 0.449 | **−0.164 [−0.309, −0.015]** |
+| LUFL    | 18 % | 0.360 | 0.529 | +0.168 [−0.028, +0.368] |
+| MULL    | 24 % | 0.548 | **0.716** | +0.169 [−0.014, +0.363] |
+
+**Read.** The signal **is channel-dependent** — Δ(SAE−stats) ranges from a
+significant −0.164 (MUFL) to a near-significant +0.169 (MULL), so the strong OT
+null is not uniform. Two cautions keep this from being a positive claim:
+(i) the only CI excluding zero is MUFL's, and it is *negative* (SAE worse);
+(ii) of the two positive hints, LUFL's is **degenerate** — P1 = 0.360 is *below*
+chance, so the "advantage" is stats failing, not SAE succeeding. **MULL** is the
+one genuinely interesting cell (P3 = 0.716, the highest SAE AUROC anywhere, vs
+P1 = 0.548), but its CI still touches zero, this is lean fidelity (n=84, wide
+CIs), and across seven channels one nominally-favorable result is expected by
+chance. Given §4.13 — where an even cleaner lean positive hint reversed at full
+fidelity — **MULL is a full-fidelity follow-up target, not a result.** The
+*multivariate* forecast in the original question is deferred: Chronos is
+univariate, so a joint multivariate forecast needs a different backbone/protocol.
+Saved: per-channel `experiments/runs/ETTh1_small_residual_mid_s42_*/`.
+
+### 4.15 Does the null depend on forecast horizon? (H = 24/96/336/720)
+
+Lean sweep on ETTh1 `OT` (`experiments/horizon_sweep.sh`; H=96 reuses the §4.12
+lean run):
+
+| Horizon | n_test | hard % | P1 stats | P3 stats+SAE | Δ(SAE−stats) 95 % CI |
+|---------|--------|--------|----------|--------------|----------------------|
+| 24  | 86 | 13 % | 0.500 | 0.553 | +0.053 [−0.135, +0.226] |
+| 96  | 84 | 18 % | 0.542 | 0.395 | −0.147 [−0.298, +0.009] |
+| 336 | 74 |  9 % | 0.500 | 0.352 | −0.148 [−0.357, +0.057] |
+| 720 | 58 |  9 % | 0.500 | **0.664** | **+0.164 [+0.009, +0.315]** |
+
+**Read.** The dominant pattern is **not** clean horizon-dependence but the *cheap
+baseline collapsing to chance* (P1 = 0.500) at H = 24/336/720 under lean fidelity
+— at those horizons both signals are weak and the deltas compare two near-chance
+probes. The one CI excluding zero (H = 720, +0.164) is also the **most
+degenerate** setting: n_test = 58 with only ~5 hard windows, P1 exactly at chance,
+and a horizon **11× Chronos's recommended maximum of 64** where the forecasts
+themselves degrade — so it reflects stats failing, not the SAE working. Per
+§4.13's lesson (marginal lean positives reverse at full fidelity), this is
+artifact-until-proven. The only within-fidelity-clean horizon is the headline
+H = 96, where the null holds (−0.147 lean, −0.228 full §4.2). Honest conclusion:
+lean fidelity leaves too little label signal at non-headline horizons to test
+horizon-dependence cleanly; a full-fidelity rerun (especially H = 336, inside a
+plausible reliability range) is the right follow-up. Saved:
+`experiments/runs/ETTh1_small_residual_mid_s42_H*/`.
 
 ## 5. Limitations
 - Single series (ETTh1), single TSFM backbone (chronos-t5-small). Layer
