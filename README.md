@@ -104,8 +104,6 @@ eval/recalibrate.py                          # Platt + isotonic recalibration (5
 eval/populate_report.py                      # fills [FILL] slots in report.md from JSON
 eval/report.md                               # the report with actual numbers
 eval/report_template.md                      # 6-page workshop skeleton (FILL slots)
-
-_stale/                                      # quarantined prototype artifacts -- DO NOT LOAD
 ```
 
 ## Methodology constraints (load-bearing)

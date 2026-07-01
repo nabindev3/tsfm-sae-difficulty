@@ -6,6 +6,14 @@
 
 > *Target venues:* NeurIPS 2026 Workshop on Time Series in the Age of Large Models · ICLR 2026 Workshop on Foundation Models for Time Series · AAAI 2026 AI4TS Workshop.
 
+> **Canonical source.** This is the condensed paper; the full, continuously-updated
+> technical report is [`report.md`](report.md), which is authoritative wherever a
+> figure here conflicts. **Pending revision:** the causal-ablation "near-significant
+> directional positive on hard windows" (+0.043) stated below is *superseded* — a
+> matched-100-sample re-run (report §4.13) shows it reverses sign (−0.049) and was
+> Monte-Carlo noise, not a causal signal. Read the causal-ablation claims here
+> against report §4.6 / §4.8 / §4.13.
+
 ---
 
 ## Abstract

@@ -704,6 +704,5 @@ and abstention to a classical baseline on distribution-shift firing.
 
 ## Reproducibility
 `bash reproduce.sh` runs the full pipeline. `requirements.txt` is pinned;
-`.vscode/settings.json` selects the venv interpreter. Stale prototype
-artifacts live in `_stale/` with a README warning. The difficulty probe
+the venv lives outside the tree (see "Running"). The difficulty probe
 refuses to run on unlabeled metadata.
