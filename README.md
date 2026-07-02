@@ -384,4 +384,10 @@ The LLM-Bridge code and its run instructions live in the sibling repo
 `eval/report.md` (HellaSwag) and `eval/report_squad.md` (SQuAD), with plots in
 `eval/results/`. Not duplicated here to keep a single source of truth.
 
+---
 
+## License
+
+Released under the [MIT License](LICENSE) (© 2026 Nabin Prasad Dev), matching the
+sibling `fm-difficulty-probe` and `llm-sae-difficulty` repos. Security reports:
+see [`SECURITY.md`](SECURITY.md).
