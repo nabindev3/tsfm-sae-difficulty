@@ -33,9 +33,7 @@ from sklearn.pipeline import make_pipeline
 from chronos import ChronosPipeline
 from tqdm import tqdm
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "sae"))
-from sae_model import TopKSAE
+from sae.sae_model import TopKSAE
 from extract_activations import compute_crps
 
 

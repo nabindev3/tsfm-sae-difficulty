@@ -20,10 +20,7 @@ import warnings
 warnings.filterwarnings("ignore", message=".*n_jobs.*liblinear.*")
 warnings.filterwarnings("ignore", module="statsmodels")
 
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.append(os.path.join(_REPO_ROOT, 'sae'))
-sys.path.append(_REPO_ROOT)
-from sae_model import TopKSAE
+from sae.sae_model import TopKSAE
 # Shared, unit-tested probe ladder from the fm-difficulty-probe `core` package
 # (installed editable: `pip install -e ../fm-difficulty-probe --no-deps`). The
 # ladder fit + paired bootstrap live there so they are tested on synthetic numpy

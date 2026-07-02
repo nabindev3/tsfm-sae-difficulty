@@ -12,7 +12,6 @@ by construction (isotonic is monotone).
 This turns §4.7's diagnosis into a deployable fix.
 """
 import os
-import sys
 import json
 import argparse
 import numpy as np
@@ -29,11 +28,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "probing"))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "sae"))
-from probe import compute_input_stats   # reuse the same 8-feature input stats
-from sae_model import TopKSAE
+from probing.probe import compute_input_stats   # reuse the same 8-feature input stats
+from sae.sae_model import TopKSAE
 
 
 def compute_ece_brier(y, p, n_bins=10):

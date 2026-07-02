@@ -17,8 +17,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "sae"))
-from sae_model import TopKSAE  # noqa: E402
+from sae.sae_model import TopKSAE
 
 
 def main():

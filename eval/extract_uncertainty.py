@@ -35,7 +35,6 @@ import torch
 from chronos import ChronosPipeline
 
 # Reuse the exact CRPS definition the labels were generated with.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from extract_activations import compute_crps, set_seed
 
 

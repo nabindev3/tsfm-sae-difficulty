@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 from safetensors.torch import load_file
-from sae_model import TopKSAE
+from sae.sae_model import TopKSAE
 from tqdm import tqdm
 
 

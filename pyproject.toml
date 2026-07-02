@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tsfm-sae-difficulty"
+version = "0.1.0"
+description = "SAE features from a Time-Series Foundation Model (Chronos-T5) as a label-free difficulty signal: probes, selective forecasting, cascade routing, and causal ablation."
+readme = "README.md"
+requires-python = ">=3.10"
+
+# Install-time floors (broad enough to install). For BIT-REPRODUCIBLE runs that
+# regenerate the committed paired-bootstrap CIs and the ΔCRPS null, install the
+# EXACT pins in requirements.txt instead — the numerics-critical packages
+# (numpy / scipy / scikit-learn / torch) fix the liblinear + bootstrap bit
+# pattern the reported numbers are calibrated against:
+#     pip install -r requirements.txt && pip install -e . --no-deps
+# The shared probe ladder / TopK SAE / cascade / calibration live in the sibling
+# `fm-difficulty-probe` package; install it editable too (see README "Running"):
+#     pip install -e ../fm-difficulty-probe --no-deps
+dependencies = [
+    "torch>=2.4.0",
+    "chronos-forecasting>=1.2.0",  # TSFM backbone (Chronos-T5)
+    "datasets>=2.19.0",
+    "safetensors>=0.4.0",
+    "scikit-learn>=1.4.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",
+    "statsmodels>=0.14.0",         # ADF p-value + autocorrelation for the 8 cheap TS stats
+    "matplotlib>=3.8.0",
+    "pyarrow>=14.0.0",
+    "tqdm>=4.66.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+# Installing the project (`pip install -e .`) puts the repo root on the import
+# path, so `from sae.sae_model import ...`, `from probing.probe import ...`, and
+# `from extract_activations import ...` resolve from any working directory — no
+# sys.path.insert hacks in the scripts. `eval/` and `experiments/` are
+# entrypoints (run as `python eval/foo.py`); the few helpers the tests import
+# (eval/conformal_baseline, eval/power_analysis) resolve as namespace packages
+# via the pytest `pythonpath` below, so they need no __init__.py.
+[tool.setuptools]
+packages = ["sae", "probing"]
+py-modules = ["extract_activations"]
+
+[tool.pytest.ini_options]
+# Adds the repo root to sys.path during test collection, so `pytest` works from a
+# clean checkout WITHOUT requiring `pip install -e .` first.
+pythonpath = ["."]
+testpaths = ["tests"]

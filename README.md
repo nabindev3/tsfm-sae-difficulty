@@ -141,6 +141,12 @@ pip install -r requirements.txt
 # already covers the runtime stack.
 pip install -e ../fm-difficulty-probe --no-deps
 
+# Make THIS repo importable too (packages `sae` / `probing` + the top-level
+# `extract_activations` module) so every script and test uses stable package
+# imports like `from sae.sae_model import TopKSAE` with no sys.path hacks.
+# --no-deps because requirements.txt above already covers the runtime stack.
+pip install -e . --no-deps
+
 bash reproduce.sh                 # full pipeline (steps 1/7 .. 7/7)
 ```
 

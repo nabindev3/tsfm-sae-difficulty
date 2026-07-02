@@ -20,7 +20,6 @@ import torch
 from chronos import ChronosPipeline
 from tqdm import tqdm
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from extract_activations import compute_crps  # reuse identical CRPS implementation
 
 

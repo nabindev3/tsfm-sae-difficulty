@@ -13,21 +13,15 @@ silently break them:
   * power_analysis (§4.8): required-n shrinks with effect size and is infinite
     for a non-positive effect.
 
-Run with the project venv:  ./venv/bin/python tests/test_new_modules_smoke.py
-or, with pytest:            pytest tests/ -q
+Run with:  pytest tests/ -q  (after `pip install -e .`). The eval/ analysis
+helpers resolve via the pytest `pythonpath` set in pyproject.toml, so run
+through pytest rather than executing this file directly.
 """
-import os
-import sys
-
 import numpy as np
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _sub in ("probing", "eval"):
-    sys.path.insert(0, os.path.join(_ROOT, _sub))
-
-from extended_baselines import hurst_exponent, stl_strength          # noqa: E402
-from conformal_baseline import risk_coverage_curve, conformal_quantile  # noqa: E402
-from power_analysis import required_n                                 # noqa: E402
+from probing.extended_baselines import hurst_exponent, stl_strength
+from eval.conformal_baseline import risk_coverage_curve, conformal_quantile
+from eval.power_analysis import required_n
 
 
 def test_hurst_separates_noise_from_random_walk():

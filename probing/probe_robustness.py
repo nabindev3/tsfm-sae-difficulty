@@ -15,7 +15,6 @@ forecasts (no new TSFM forward pass):
       doesn't help, the null is not a CRPS-binarization artifact.
 """
 import os
-import sys
 import json
 import argparse
 import numpy as np
@@ -29,14 +28,10 @@ from sklearn.pipeline import make_pipeline
 from sklearn.metrics import roc_auc_score
 from scipy.stats import spearmanr
 
-_REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.append(os.path.join(_REPO, "sae"))
-sys.path.append(_REPO)
-sys.path.append(os.path.dirname(__file__))
-from sae_model import TopKSAE
+from sae.sae_model import TopKSAE
 from core.probe import build_ladder, run_probe_ladder, P1, P2, P3
-from probe import compute_input_stats
-from extended_baselines import compute_extended_baselines, interval_width_feature
+from probing.probe import compute_input_stats
+from probing.extended_baselines import compute_extended_baselines, interval_width_feature
 
 
 def agg(acts):  # concat(mean, max, last) pooling, matching probe.py

@@ -12,24 +12,17 @@ probe relies on so a refactor can't silently break them:
   * a saved checkpoint reloads to bit-identical activations (the probe loads
     W_enc/W_dec from disk -- a serialization regression would feed it garbage).
 
-Run with the project venv (no pytest needed):
-    ./venv/bin/python tests/test_probe_smoke.py
-or, if pytest is installed:
-    pytest tests/ -q
+Run with:  pytest tests/ -q
+(after `pip install -e .`, so the `sae` / `probing` packages resolve).
 """
 import os
-import sys
 import tempfile
 
 import numpy as np
 import torch
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(_ROOT, "sae"))
-sys.path.insert(0, os.path.join(_ROOT, "probing"))
-
-from sae_model import TopKSAE          # noqa: E402
-from probe import compute_spectral_entropy  # noqa: E402
+from sae.sae_model import TopKSAE
+from probing.probe import compute_spectral_entropy
 
 
 def test_topk_sae_forward_shapes_and_sparsity():

@@ -7,22 +7,14 @@ the same fit + paired-bootstrap code path, just fed synthetic features.
 
 These tests assert contracts, not research conclusions — that the ladder builds
 the right five rungs, returns well-formed AUROCs/CIs, and that the paired
-bootstrap and CI helpers behave. Run with the project venv:
-    ./venv/bin/python tests/test_core_synthetic.py
-or, if pytest is installed:
-    pytest tests/ -q
+bootstrap and CI helpers behave. Run with:  pytest tests/ -q
+(after `pip install -e .`, so the fm-difficulty-probe `core` package resolves).
 """
-import os
-import sys
-
 import numpy as np
 from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _ROOT)
-
-from core import probe as P            # noqa: E402
-from core import stats as ST          # noqa: E402
+from core import probe as P
+from core import stats as ST
 
 
 def _synthetic(n=400, d_cheap=8, d_act=24, seed=0):
