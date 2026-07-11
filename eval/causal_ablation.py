@@ -180,7 +180,7 @@ def main():
     sae_recon_hook = make_sae_hook(sae, ablated_features=None)
     feat_hooks = {f: make_sae_hook(sae, ablated_features=[f]) for f in top}
 
-    for _, row in tqdm(list(test.iterrows()), total=len(test)):
+    for _, row in tqdm(test.iterrows(), total=len(test)):
         s = int(row["start_ts"])
         context = torch.tensor(series[s:s + args.context_length], dtype=torch.float32)
         truth = series[s + args.context_length:
