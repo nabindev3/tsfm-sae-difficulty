@@ -20,8 +20,6 @@ import torch
 from safetensors.torch import load_file
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import make_pipeline
-from sklearn.model_selection import TimeSeriesSplit, cross_val_predict
 from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import roc_auc_score
 import matplotlib

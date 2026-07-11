@@ -30,7 +30,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from sae.sae_model import TopKSAE
-from extract_activations import compute_crps
 
 
 def make_steering_hook(sae, feat_idx=None, clamp_value=None):
@@ -170,7 +169,6 @@ def main():
 
     recon_hook = make_steering_hook(sae)   # no clamp, just SAE recon
     results = []
-    fig_grid = []
     for _, row in chosen.iterrows():
         s = int(row["start_ts"])
         context = torch.tensor(series[s:s + args.context_length], dtype=torch.float32)

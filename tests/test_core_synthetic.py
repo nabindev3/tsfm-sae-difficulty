@@ -52,7 +52,7 @@ def test_probe_ladder_runs_and_shapes():
     result, preds = P.run_probe_ladder(feats, y, train_mask, test_mask, folds, n_boot=200)
     assert result.n_test == int(test_mask.sum())
     assert result.n_train == int(train_mask.sum())
-    for name, pr in result.probes.items():
+    for pr in result.probes.values():
         assert 0.0 <= pr.auroc <= 1.0
         assert pr.ci_low <= pr.auroc <= pr.ci_high + 1e-6
         assert pr.best_C in P.DEFAULT_C_GRID

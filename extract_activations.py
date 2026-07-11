@@ -6,8 +6,6 @@ import pandas as pd
 import torch
 from chronos import ChronosPipeline
 from safetensors.torch import save_file
-import pyarrow as pa
-import pyarrow.parquet as pq
 from tqdm import tqdm
 
 
