@@ -1,7 +1,7 @@
 # Feature-Routed Time-Series Forecasting
 
 Sparse-autoencoder features from a Time-Series Foundation Model (TSFM) as a
-learned signal for forecast difficulty, routing, and abstention — plus a
+learned signal for forecast difficulty, routing, and abstention plus a
 Platt-recalibrated selective forecaster, a real small↔base cascade, and a
 Mishra-style causal ablation of the top features.
 
@@ -12,7 +12,7 @@ Mishra-style causal ablation of the top features.
 ## Question
 
 Do SAE features add predictive power for forecast difficulty **on top of** cheap
-input statistics and raw activations — i.e., does the model's internal
+input statistics and raw activations i.e., does the model's internal
 representation know something about its own future error that the input
 doesn't already reveal? **And if not**, can we still recover a deployable
 abstention signal from the cheap baseline?
@@ -22,11 +22,11 @@ The headline metric is **incremental** AUROC with paired-bootstrap CIs:
 - `P1` = input-stats only (the baseline that matters)
 - `P2` = input-stats + raw activations
 - `P3` = input-stats + SAE features
-- `P4` / `P5` = raw-only / sae-only (diagnostic isolations — where does signal live?)
+- `P4` / `P5` = raw-only / sae-only (diagnostic isolations where does signal live?)
 - deltas: `P2 − P1`, `P3 − P1`, and `P3 − P2` (neutralizes the dimensionality
   argument: SAE vs. raw, both high-dim)
 
-Even a rigorously-reported null result is a credible signal — sloppy 0.85 <
+Even a rigorously-reported null result is a credible signal sloppy 0.85 <
 rigorous honest 0.62 in the eyes of the people we want to impress.
 
 ## Pipeline (where every artifact comes from)
